@@ -1,0 +1,3 @@
+# Keep demo / annotated videos out of git; directory is created at runtime.
+*
+!.gitignore

@@ -1,0 +1,67 @@
+services:
+  mediamtx:
+    image: bluenviron/mediamtx:latest
+    container_name: visionops-mediamtx
+    restart: unless-stopped
+    ports:
+      - "${MEDIAMTX_RTSP_PORT:-8554}:8554"
+      - "${MEDIAMTX_WEBRTC_PORT:-8889}:8889"
+      - "${MEDIAMTX_RTMP_PORT:-1935}:1935"
+      - "8888:8888"
+      - "9997:9997"
+    volumes:
+      - ./docker/mediamtx.yml:/mediamtx.yml:ro
+    environment:
+      MTX_CONFLEVEL: info
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: visionops-postgres
+    restart: unless-stopped
+    ports:
+      - "${POSTGRES_PORT:-5434}:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-visionops}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-visionops_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-visionops_db}
+    volumes:
+      - visionops_pg_data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-visionops} -d ${POSTGRES_DB:-visionops_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: visionops-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6380}:6379"
+    volumes:
+      - visionops_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    container_name: visionops-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    ports:
+      - "${MINIO_API_PORT:-9001}:9000"
+      - "${MINIO_CONSOLE_PORT:-9002}:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-visionops_minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-visionops_minio_secret}
+    volumes:
+      - visionops_minio_data:/data
+
+volumes:
+  visionops_pg_data:
+  visionops_redis_data:
+  visionops_minio_data:
