@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
+import { AppShell } from "@/components/AppShell";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "VisionOps AI",
-  description: "Real-time computer vision & video surveillance platform",
+  title: "VisionOps AI — Control Center",
+  description: "Real-time computer vision monitoring, ROI editor, and alert gallery",
 };
 
 export default function RootLayout({
@@ -13,7 +14,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <AppShell>{children}</AppShell>
+      </body>
     </html>
   );
 }

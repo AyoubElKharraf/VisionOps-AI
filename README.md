@@ -81,27 +81,49 @@ docker build -t visionops-engine ./visionops-engine
 docker run --rm -v ${PWD}/visionops-engine/data:/app/data visionops-engine python main.py --max-frames 30 --output data/out.mp4
 ```
 
-## Backend skeleton
+## Backend (Phase 3)
 
 ```powershell
 cd visionops-backend
-py -3.11 -m venv .venv
+py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
+
+# API (use 8001 if :8000 is busy on Windows)
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8001
+
+# Celery worker (solo pool required on Windows) — second terminal
+celery -A app.celery_app.celery_app worker --loglevel=info --pool=solo
 ```
 
-Health check: [http://localhost:8000/health](http://localhost:8000/health)
+- Health: [http://127.0.0.1:8001/health](http://127.0.0.1:8001/health)
+- Docs: [http://127.0.0.1:8001/docs](http://127.0.0.1:8001/docs)
+- `POST /api/v1/cameras` · `POST /api/v1/alerts` · `GET /api/v1/alerts`
 
-## UI skeleton
+## UI — Phase 4 Control Center
 
 ```powershell
 cd visionops-ui
+copy .env.local.example .env.local
 npm install
 npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
+
+Pages:
+- `/` Overview (API health)
+- `/monitor` Live video + canvas boxes (WebSocket detections)
+- `/roi` Polygon ROI editor (persisted via API)
+- `/alerts` Alert gallery (MinIO snapshots/clips)
+
+Feed live boxes from the engine:
+
+```bat
+cd visionops-engine
+.\.venv\Scripts\activate.bat
+python demo_roi.py --skip-benchmark --max-frames 0 --post-alerts --stream-detections --api-url http://127.0.0.1:8001
+```
 
 ## Phase 1 smoke test
 
@@ -137,6 +159,36 @@ PowerShell smoke test:
 
 New engine modules: `export_onnx.py`, `onnx_engine.py`, `roi_manager.py`, `demo_roi.py`.
 
+## Phase 3 — Alerts API + Celery + MinIO
+
+Pipeline: engine ROI/tripwire → `POST /api/v1/alerts` → PostgreSQL → Celery worker → snapshot JPG + clip MP4 on MinIO.
+
+```bat
+:: Terminal 1 — infra
+docker compose up -d
+
+:: Terminal 2 — API
+cd visionops-backend
+.\.venv\Scripts\activate.bat
+uvicorn app.main:app --host 127.0.0.1 --port 8001
+
+:: Terminal 3 — Celery
+cd visionops-backend
+.\.venv\Scripts\activate.bat
+celery -A app.celery_app.celery_app worker --loglevel=info --pool=solo
+
+:: Terminal 4 — engine posts alerts
+cd visionops-engine
+.\.venv\Scripts\activate.bat
+python demo_roi.py --skip-benchmark --max-frames 60 --post-alerts --api-url http://127.0.0.1:8001
+```
+
+PowerShell smoke test:
+
+```powershell
+.\scripts\test-phase3.ps1
+```
+
 ## Repository layout
 
 ```text
@@ -144,8 +196,9 @@ VisionOps_AI/
 ├── docker/
 ├── scripts/test-phase1.ps1
 ├── scripts/test-phase2.ps1
-├── visionops-engine/       # YOLO / OpenCV / ONNX / ROI (Phases 1–2)
-├── visionops-backend/
+├── scripts/test-phase3.ps1
+├── visionops-engine/       # YOLO / ONNX / ROI + alert_client
+├── visionops-backend/      # FastAPI + Celery + MinIO (Phase 3)
 ├── visionops-ui/
 ├── docker-compose.yml
 └── .env.example
@@ -154,6 +207,6 @@ VisionOps_AI/
 ## Roadmap
 
 - **Phase 2** — ONNX export + ROI geometry (Shapely) ✅
-- **Phase 3** — Alerts API + Celery clip upload to MinIO
-- **Phase 4** — WebRTC player + Canvas overlay + ROI editor
+- **Phase 3** — Alerts API + Celery clip upload to MinIO ✅
+- **Phase 4** — Dashboard + canvas overlay + ROI editor + alert gallery ✅
 - **Phase 5** — CI/CD + performance tests

@@ -7,6 +7,7 @@ Preprocess (letterbox) → ONNX session → NMS → boxes [x1,y1,x2,y2,conf,cls]
 from __future__ import annotations
 
 import logging
+import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -210,6 +211,10 @@ class ONNXInferenceEngine:
 
         so = ort.SessionOptions()
         so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        # Use available CPU cores without oversubscribing (helps Windows laptop CPUs)
+        so.intra_op_num_threads = max(1, (os.cpu_count() or 4) // 2)
+        so.inter_op_num_threads = 1
+        so.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
         self.session = ort.InferenceSession(str(self.model_path), sess_options=so, providers=providers)
         self.input_name = self.session.get_inputs()[0].name
         self.output_names = [o.name for o in self.session.get_outputs()]

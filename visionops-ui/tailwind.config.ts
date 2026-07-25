@@ -14,8 +14,8 @@ const config: Config = {
         muted: "#8b9bb4",
       },
       fontFamily: {
-        display: ["var(--font-display)", "Segoe UI", "sans-serif"],
-        body: ["var(--font-body)", "Segoe UI", "sans-serif"],
+        display: ["var(--font-display)", "Space Grotesk", "sans-serif"],
+        body: ["var(--font-body)", "IBM Plex Sans", "sans-serif"],
       },
     },
   },

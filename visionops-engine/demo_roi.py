@@ -23,6 +23,7 @@ from main import (
     open_capture,
     resolve_source,
 )
+from alert_client import AlertClient
 from onnx_engine import COCO_NAMES, ONNXInferenceEngine
 from roi_manager import (
     CrossingDirection,
@@ -120,15 +121,43 @@ def build_default_roi(width: int, height: int) -> ROIEngine:
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="VisionOps AI — Phase 2 ROI demo")
+    p = argparse.ArgumentParser(description="VisionOps AI — Phase 2/3 ROI demo")
     p.add_argument("--source", type=str, default="")
     p.add_argument("--max-frames", type=int, default=90)
     p.add_argument("--conf", type=float, default=0.25)
     p.add_argument("--device", type=str, default="cpu")
-    p.add_argument("--output", type=str, default=str(DATA_DIR / "annotated_phase2_roi.mp4"))
+    p.add_argument(
+        "--output",
+        type=str,
+        default="",
+        help="Optional annotated MP4 path (empty = no video write, faster)",
+    )
     p.add_argument("--benchmark-frames", type=int, default=30, help="Frames used for PT vs ONNX FPS compare")
     p.add_argument("--skip-benchmark", action="store_true")
     p.add_argument("--show", action="store_true")
+    p.add_argument(
+        "--post-alerts",
+        action="store_true",
+        help="POST ROI/tripwire alerts to visionops-backend (Phase 3)",
+    )
+    p.add_argument(
+        "--stream-detections",
+        action="store_true",
+        help="Push live bounding boxes to backend WebSocket hub (Phase 4 dashboard)",
+    )
+    p.add_argument(
+        "--stream-every",
+        type=int,
+        default=2,
+        help="Push detections every N frames (default 2 — lighter on network)",
+    )
+    p.add_argument(
+        "--api-url",
+        type=str,
+        default="http://127.0.0.1:8001",
+        help="Backend base URL (default port 8001 — avoids Windows :8000 conflicts)",
+    )
+    p.add_argument("--alert-cooldown", type=int, default=45, help="Min frames between identical API alerts")
     return p.parse_args()
 
 
@@ -167,9 +196,10 @@ def run(args: argparse.Namespace) -> int:
     source = resolve_source(args.source)
     onnx_path = export_onnx(ENGINE_DIR / "yolov8n.pt", ENGINE_DIR / "yolov8n.onnx")
     onnx_engine = ONNXInferenceEngine(onnx_path, conf_thres=args.conf)
-    pt_model = YOLO(str(ENGINE_DIR / "yolov8n.pt"))
 
+    # Only load heavy PyTorch weights when benchmarking (was slowing every run)
     if not args.skip_benchmark:
+        pt_model = YOLO(str(ENGINE_DIR / "yolov8n.pt"))
         logger.info("Benchmarking PyTorch vs ONNX over %d frames…", args.benchmark_frames)
         avg_pt, avg_onnx, fps_pt, fps_onnx = benchmark(
             source, onnx_engine, pt_model, args.conf, args.device, args.benchmark_frames
@@ -178,21 +208,37 @@ def run(args: argparse.Namespace) -> int:
         logger.info("METRICS | PyTorch avg_infer=%.1fms (%.1f FPS)", avg_pt, fps_pt)
         logger.info("METRICS | ONNX     avg_infer=%.1fms (%.1f FPS)", avg_onnx, fps_onnx)
         logger.info("METRICS | Latency gain: %.2fx faster with ONNX", speedup)
+        del pt_model
 
     capture = open_capture(source)
     width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH) or 640)
     height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT) or 480)
     src_fps = float(capture.get(cv2.CAP_PROP_FPS) or 25.0)
-    writer = create_writer(args.output, src_fps, (width, height))
+    # Writing MP4 every frame is costly — off by default now
+    writer = create_writer(args.output, src_fps, (width, height)) if args.output else None
     roi = build_default_roi(width, height)
 
     fps_window: deque[float] = deque(maxlen=30)
     frame_idx = 0
     intrusion_frames = 0
     crossing_total = 0
+    posted_alerts = 0
     show = args.show
+    alert_client = (
+        AlertClient(args.api_url) if (args.post_alerts or args.stream_detections) else None
+    )
+    last_posted: dict[str, int] = {}
+    stream_every = max(1, args.stream_every)
 
-    logger.info("Running ROI demo | source=%s | max_frames=%d", source, args.max_frames)
+    logger.info(
+        "Running ROI demo | source=%s | max_frames=%d | post_alerts=%s | stream=%s (every %d) | write_mp4=%s",
+        source,
+        args.max_frames,
+        args.post_alerts,
+        args.stream_detections,
+        stream_every,
+        bool(writer),
+    )
 
     try:
         while True:
@@ -207,60 +253,122 @@ def run(args: argparse.Namespace) -> int:
 
             alerts = roi.check_zone_intrusion(detections)
             crossings = roi.check_line_crossings(detections)
+
+            if (
+                alert_client is not None
+                and args.stream_detections
+                and frame_idx % stream_every == 0
+            ):
+                boxes_payload = [
+                    {
+                        "x1": d.x1,
+                        "y1": d.y1,
+                        "x2": d.x2,
+                        "y2": d.y2,
+                        "confidence": d.confidence,
+                        "class_id": d.class_id,
+                        "class_name": d.class_name,
+                        "track_id": d.track_id,
+                    }
+                    for d in detections
+                ]
+                # Non-blocking; drops if previous HTTP still in flight
+                alert_client.push_detections(
+                    width=width,
+                    height=height,
+                    frame_index=frame_idx,
+                    boxes=boxes_payload,
+                    infer_ms=infer_ms,
+                    zone_alerts=[a.message for a in alerts],
+                )
+
             if alerts:
                 intrusion_frames += 1
                 for a in alerts:
                     logger.warning("%s | infer=%.1fms", a.message, infer_ms)
+                    if alert_client is not None and args.post_alerts:
+                        key = f"roi:{a.zone_name}"
+                        if frame_idx - last_posted.get(key, -10_000) >= args.alert_cooldown:
+                            alert_client.create_alert(
+                                alert_type="roi_intrusion",
+                                message=a.message,
+                                camera_name="demo-camera",
+                                zone_name=a.zone_name,
+                                class_name=(a.offending_classes[0] if a.offending_classes else None),
+                                source_video_path=source,
+                                frame_index=frame_idx,
+                                snapshot_frame=frame,
+                                metadata={"object_count": a.object_count, "infer_ms": infer_ms},
+                            )
+                            posted_alerts += 1
+                            last_posted[key] = frame_idx
             for c in crossings:
                 crossing_total += 1
                 logger.warning("%s | infer=%.1fms", c.message, infer_ms)
-
-            annotated = frame.copy()
-            zone = roi.zones[0]
-            zone_pts = [(int(x), int(y)) for x, y in zone.points]
-            zone_color = (40, 40, 220) if alerts else (40, 200, 80)  # BGR red / green
-            draw_semi_transparent_polygon(annotated, zone_pts, zone_color, alpha=0.35)
-            label = "INTRUSION" if alerts else "ZONE OK"
-            cv2.putText(
-                annotated,
-                f"{zone.name}: {label}",
-                (zone_pts[0][0], max(20, zone_pts[0][1] - 8)),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
-                zone_color,
-                2,
-                cv2.LINE_AA,
-            )
-
-            wire = roi.tripwires[0]
-            draw_tripwire(annotated, wire.start, wire.end)
-            draw_boxes(annotated, detections)
+                if alert_client is not None and args.post_alerts:
+                    key = f"tw:{c.line_name}:{c.track_id}:{c.direction}"
+                    if frame_idx - last_posted.get(key, -10_000) >= args.alert_cooldown:
+                        alert_client.create_alert(
+                            alert_type="tripwire",
+                            message=c.message,
+                            camera_name="demo-camera",
+                            zone_name=c.line_name,
+                            class_name=c.class_name,
+                            track_id=c.track_id,
+                            source_video_path=source,
+                            frame_index=frame_idx,
+                            snapshot_frame=frame,
+                            metadata={"direction": c.direction, "infer_ms": infer_ms},
+                        )
+                        posted_alerts += 1
+                        last_posted[key] = frame_idx
 
             avg_fps = sum(fps_window) / len(fps_window) if fps_window else 0.0
-            hud = f"ONNX {avg_fps:.1f}FPS | infer {infer_ms:.1f}ms | cross={crossing_total}"
-            cv2.putText(annotated, hud, (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (40, 255, 120), 2, cv2.LINE_AA)
-            if alerts:
+            need_draw = writer is not None or show
+            if need_draw:
+                annotated = frame.copy()
+                zone = roi.zones[0]
+                zone_pts = [(int(x), int(y)) for x, y in zone.points]
+                zone_color = (40, 40, 220) if alerts else (40, 200, 80)
+                draw_semi_transparent_polygon(annotated, zone_pts, zone_color, alpha=0.35)
+                label = "INTRUSION" if alerts else "ZONE OK"
                 cv2.putText(
                     annotated,
-                    "ALERTE ROI : Intrusion detectee !",
-                    (10, 58),
+                    f"{zone.name}: {label}",
+                    (zone_pts[0][0], max(20, zone_pts[0][1] - 8)),
                     cv2.FONT_HERSHEY_SIMPLEX,
-                    0.7,
-                    (40, 40, 255),
+                    0.6,
+                    zone_color,
                     2,
                     cv2.LINE_AA,
                 )
-
-            if writer is not None:
-                writer.write(annotated)
-
-            if show:
-                try:
-                    cv2.imshow("VisionOps AI — Phase 2 ROI", annotated)
-                    if cv2.waitKey(1) & 0xFF == ord("q"):
-                        break
-                except cv2.error:
-                    show = False
+                wire = roi.tripwires[0]
+                draw_tripwire(annotated, wire.start, wire.end)
+                draw_boxes(annotated, detections)
+                hud = f"ONNX {avg_fps:.1f}FPS | infer {infer_ms:.1f}ms | cross={crossing_total}"
+                cv2.putText(
+                    annotated, hud, (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (40, 255, 120), 2, cv2.LINE_AA
+                )
+                if alerts:
+                    cv2.putText(
+                        annotated,
+                        "ALERTE ROI : Intrusion detectee !",
+                        (10, 58),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.7,
+                        (40, 40, 255),
+                        2,
+                        cv2.LINE_AA,
+                    )
+                if writer is not None:
+                    writer.write(annotated)
+                if show:
+                    try:
+                        cv2.imshow("VisionOps AI — Phase 2 ROI", annotated)
+                        if cv2.waitKey(1) & 0xFF == ord("q"):
+                            break
+                    except cv2.error:
+                        show = False
 
             frame_idx += 1
             if frame_idx % 30 == 0:
@@ -279,6 +387,8 @@ def run(args: argparse.Namespace) -> int:
         capture.release()
         if writer is not None:
             writer.release()
+        if alert_client is not None:
+            alert_client.close()
         if show:
             try:
                 cv2.destroyAllWindows()
@@ -286,11 +396,12 @@ def run(args: argparse.Namespace) -> int:
                 pass
 
     logger.info(
-        "Done. frames=%d | intrusion_frames=%d | crossings=%d | output=%s",
+        "Done. frames=%d | intrusion_frames=%d | crossings=%d | posted_alerts=%d | output=%s",
         frame_idx,
         intrusion_frames,
         crossing_total,
-        args.output,
+        posted_alerts,
+        args.output or "(none)",
     )
     return 0 if frame_idx > 0 else 1
 

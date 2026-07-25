@@ -1,0 +1,231 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import type { RoiZone } from "@/lib/api";
+import { visionopsApi } from "@/lib/api";
+
+type Point = [number, number];
+
+export function RoiEditor({
+  imageUrl = "/demo-poster.svg",
+}: {
+  imageUrl?: string;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [points, setPoints] = useState<Point[]>([]);
+  const [zones, setZones] = useState<RoiZone[]>([]);
+  const [name, setName] = useState("zone_restreinte");
+  const [status, setStatus] = useState<string>("");
+  const [size, setSize] = useState({ w: 640, h: 360 });
+
+  const reload = async () => {
+    try {
+      setZones(await visionopsApi.listZones());
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : "Failed to load zones");
+    }
+  };
+
+  useEffect(() => {
+    void reload();
+  }, []);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const img = new Image();
+    img.src = imageUrl;
+    img.onload = () => {
+      const maxW = canvas.parentElement?.clientWidth || 800;
+      const scale = Math.min(1, maxW / img.width);
+      const w = Math.floor(img.width * scale);
+      const h = Math.floor(img.height * scale);
+      canvas.width = w;
+      canvas.height = h;
+      setSize({ w, h });
+      redraw(ctx, img, w, h, points, zones);
+    };
+
+    const onResize = () => {
+      if (img.complete) {
+        const maxW = canvas.parentElement?.clientWidth || 800;
+        const scale = Math.min(1, maxW / img.width);
+        const w = Math.floor(img.width * scale);
+        const h = Math.floor(img.height * scale);
+        canvas.width = w;
+        canvas.height = h;
+        setSize({ w, h });
+        redraw(ctx, img, w, h, points, zones);
+      }
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [imageUrl, points, zones]);
+
+  const onClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * canvas.width;
+    const y = ((e.clientY - rect.top) / rect.height) * canvas.height;
+    setPoints((prev) => [...prev, [x, y]]);
+  };
+
+  const save = async () => {
+    if (points.length < 3) {
+      setStatus("Need at least 3 points");
+      return;
+    }
+    try {
+      // Store normalized 0-1 coords for resolution independence
+      const normalized = points.map(
+        ([x, y]) => [x / size.w, y / size.h] as number[],
+      );
+      await visionopsApi.createZone({
+        name,
+        points: normalized,
+        color: "#ef4444",
+        camera_name: "demo-camera",
+      });
+      setPoints([]);
+      setStatus("Zone saved");
+      await reload();
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : "Save failed");
+    }
+  };
+
+  const remove = async (id: string) => {
+    await visionopsApi.deleteZone(id);
+    await reload();
+  };
+
+  return (
+    <div className="grid gap-6 lg:grid-cols-[1fr_280px]">
+      <div>
+        <p className="mb-3 text-sm text-muted">
+          Click on the image to place polygon vertices. Save when done (≥ 3 points).
+        </p>
+        <canvas
+          ref={canvasRef}
+          onClick={onClick}
+          className="w-full cursor-crosshair rounded-lg border border-white/10 bg-black/40"
+        />
+      </div>
+      <div className="space-y-4">
+        <label className="block text-sm">
+          Zone name
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="mt-1 w-full rounded-md border border-white/10 bg-ink px-3 py-2 text-white outline-none focus:border-accent"
+          />
+        </label>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setPoints([])}
+            className="min-h-11 rounded-md border border-white/15 px-4 text-sm hover:bg-white/5"
+          >
+            Clear points
+          </button>
+          <button
+            type="button"
+            onClick={() => void save()}
+            className="min-h-11 rounded-md bg-accent px-4 text-sm font-medium text-ink hover:opacity-90"
+          >
+            Save ROI
+          </button>
+        </div>
+        <p className="text-xs text-muted">Draft points: {points.length}</p>
+        {status && <p className="text-xs text-accent">{status}</p>}
+        <div className="space-y-2">
+          <p className="text-sm font-medium">Saved zones</p>
+          {zones.length === 0 && (
+            <p className="text-xs text-muted">No zones yet</p>
+          )}
+          {zones.map((z) => (
+            <div
+              key={z.id}
+              className="flex items-center justify-between rounded-md border border-white/10 px-3 py-2 text-sm"
+            >
+              <span>{z.name}</span>
+              <button
+                type="button"
+                onClick={() => void remove(z.id)}
+                className="text-xs text-red-300 hover:underline"
+              >
+                Delete
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function redraw(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  w: number,
+  h: number,
+  draft: Point[],
+  zones: RoiZone[],
+) {
+  ctx.clearRect(0, 0, w, h);
+  ctx.drawImage(img, 0, 0, w, h);
+
+  for (const zone of zones) {
+    drawPoly(
+      ctx,
+      zone.points.map(([x, y]) =>
+        x <= 1 && y <= 1 ? ([x * w, y * h] as Point) : ([x, y] as Point),
+      ),
+      zone.color || "#ef4444",
+      0.25,
+    );
+  }
+
+  if (draft.length) {
+    drawPoly(ctx, draft, "#3dd6c6", 0.2);
+    for (const [x, y] of draft) {
+      ctx.fillStyle = "#3dd6c6";
+      ctx.beginPath();
+      ctx.arc(x, y, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+}
+
+function drawPoly(
+  ctx: CanvasRenderingContext2D,
+  pts: Point[],
+  color: string,
+  alpha: number,
+) {
+  if (pts.length < 2) return;
+  ctx.beginPath();
+  pts.forEach(([x, y], i) => (i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)));
+  if (pts.length >= 3) ctx.closePath();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  if (pts.length >= 3) {
+    ctx.fillStyle = hexAlpha(color, alpha);
+    ctx.fill();
+  }
+}
+
+function hexAlpha(hex: string, alpha: number) {
+  const h = hex.replace("#", "");
+  const full = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
+  const n = parseInt(full, 16);
+  const r = (n >> 16) & 255;
+  const g = (n >> 8) & 255;
+  const b = n & 255;
+  return `rgba(${r},${g},${b},${alpha})`;
+}
