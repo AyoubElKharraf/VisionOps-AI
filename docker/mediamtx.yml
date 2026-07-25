@@ -8,13 +8,17 @@ rtmp: yes
 rtmpAddress: :1935
 webrtc: yes
 webrtcAddress: :8889
+# UDP ICE for browser WebRTC (mapped in docker-compose if needed)
+webrtcLocalUDPAddress: :8189
+webrtcIPsFromInterfaces: yes
 hls: yes
 hlsAddress: :8888
 api: yes
 apiAddress: :9997
 
-# Allow publishing/reading without credentials for Phase 1
+# Allow publishing/reading without credentials
 paths:
+  cam1:
+    source: publisher
   all_others:
-    # Accept any path for RTSP publish / read
     source: publisher

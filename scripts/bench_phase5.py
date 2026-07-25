@@ -30,9 +30,16 @@ def main() -> int:
     parser.add_argument("--warmup", type=int, default=5)
     args = parser.parse_args()
 
+    from export_onnx import DEFAULT_IMGSZ, DEFAULT_ONNX
+
     video = ensure_demo_video()
-    onnx_path = export_onnx(ENGINE / "yolov8n.pt", ENGINE / "yolov8n.onnx")
+    onnx_path = export_onnx(
+        ENGINE / "yolov8n.pt",
+        DEFAULT_ONNX,
+        imgsz=DEFAULT_IMGSZ,
+    )
     engine = ONNXInferenceEngine(onnx_path, conf_thres=0.25)
+    print(f"model={onnx_path.name} imgsz={engine.imgsz}")
 
     cap = cv2.VideoCapture(str(video))
     if not cap.isOpened():

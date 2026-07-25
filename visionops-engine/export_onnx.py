@@ -1,9 +1,12 @@
 """
-VisionOps AI — Export YOLOv8 PyTorch weights to ONNX (Phase 2).
+VisionOps AI — Export YOLOv8 PyTorch weights to ONNX.
+
+Default CPU-optimized export: imgsz=416 → yolov8n_416.onnx
 
 Usage:
   python export_onnx.py
-  python export_onnx.py --model yolov8n.pt --imgsz 640
+  python export_onnx.py --imgsz 416 --force
+  python export_onnx.py --imgsz 640 --output yolov8n_640.onnx
 """
 
 from __future__ import annotations
@@ -24,13 +27,14 @@ logger = logging.getLogger("visionops-export-onnx")
 
 ENGINE_DIR = Path(__file__).resolve().parent
 DEFAULT_PT = ENGINE_DIR / "yolov8n.pt"
-DEFAULT_ONNX = ENGINE_DIR / "yolov8n.onnx"
+DEFAULT_IMGSZ = 416
+DEFAULT_ONNX = ENGINE_DIR / "yolov8n_416.onnx"
 
 
 def export_onnx(
     model_path: Path,
     output_path: Path | None = None,
-    imgsz: int = 640,
+    imgsz: int = DEFAULT_IMGSZ,
     force: bool = False,
 ) -> Path:
     """Export Ultralytics YOLO `.pt` to ONNX. Skip if target already exists."""
@@ -40,7 +44,7 @@ def export_onnx(
     else:
         model = YOLO(str(model_path))
 
-    target = output_path or model_path.with_suffix(".onnx")
+    target = output_path or (ENGINE_DIR / f"yolov8n_{imgsz}.onnx")
     if target.exists() and not force:
         logger.info("ONNX already present, skipping export: %s", target)
         return target
@@ -65,7 +69,12 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Export YOLOv8 to ONNX")
     parser.add_argument("--model", type=str, default=str(DEFAULT_PT), help="Path to .pt weights")
     parser.add_argument("--output", type=str, default=str(DEFAULT_ONNX), help="Output .onnx path")
-    parser.add_argument("--imgsz", type=int, default=640, help="Export input size")
+    parser.add_argument(
+        "--imgsz",
+        type=int,
+        default=DEFAULT_IMGSZ,
+        help="Export input size (416 = faster CPU, 640 = higher accuracy)",
+    )
     parser.add_argument("--force", action="store_true", help="Re-export even if ONNX exists")
     return parser.parse_args()
 

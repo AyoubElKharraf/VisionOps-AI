@@ -9,6 +9,8 @@ services:
       - "${MEDIAMTX_RTMP_PORT:-1935}:1935"
       - "8888:8888"
       - "9997:9997"
+      # WebRTC ICE (UDP) — required for real browser playback
+      - "8189:8189/udp"
     volumes:
       - ./docker/mediamtx.yml:/mediamtx.yml:ro
     environment:

@@ -113,17 +113,29 @@ Open [http://localhost:3000](http://localhost:3000).
 
 Pages:
 - `/` Overview (API health)
-- `/monitor` Live video + canvas boxes (WebSocket detections)
+- `/monitor` **WebRTC (MediaMTX WHEP)** / HLS / demo + canvas boxes
 - `/roi` Polygon ROI editor (persisted via API)
 - `/alerts` Alert gallery (MinIO snapshots/clips)
 
-Feed live boxes from the engine:
+### Real WebRTC via MediaMTX
+
+1. Start infra: `docker compose up -d` (exposes `8889` WHEP + `8189/udp` ICE)
+2. Publish demo loop (needs [ffmpeg](https://ffmpeg.org) in PATH):
+
+```powershell
+.\scripts\publish-demo-mediamtx.ps1
+```
+
+3. Open [http://localhost:3000/monitor](http://localhost:3000/monitor) → source **WebRTC · MediaMTX WHEP**
+4. (Optional) stream detections for canvas overlay:
 
 ```bat
 cd visionops-engine
 .\.venv\Scripts\activate.bat
-python demo_roi.py --skip-benchmark --max-frames 0 --post-alerts --stream-detections --api-url http://127.0.0.1:8001
+python demo_roi.py --skip-benchmark --max-frames 0 --stream-detections --stream-every 2 --api-url http://127.0.0.1:8001
 ```
+
+WHEP signaling is proxied by Next.js (`/api/mediamtx/whep`) to avoid browser CORS.
 
 ## Phase 1 smoke test
 
@@ -140,10 +152,12 @@ cd visionops-engine
 .\.venv\Scripts\activate.bat
 pip install -r requirements.txt
 
-:: Export ONNX (skipped if yolov8n.onnx already exists)
+:: Export ONNX imgsz=416 (CPU-fast, default)
 python export_onnx.py
+:: Optional higher-accuracy 640:
+python export_onnx.py --imgsz 640 --output yolov8n_640.onnx --force
 
-:: Inference ONNX
+:: Inference ONNX (uses yolov8n_416.onnx by default)
 python main.py --use-onnx --max-frames 60 --device cpu
 
 :: ROI demo (zone + tripwire + PyTorch vs ONNX metrics)

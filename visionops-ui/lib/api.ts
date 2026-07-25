@@ -8,6 +8,10 @@ export const WS_URL =
 export const HLS_URL =
   process.env.NEXT_PUBLIC_HLS_URL ?? "http://127.0.0.1:8888/cam1/index.m3u8";
 
+/** Same-origin Next.js proxy → MediaMTX WHEP (avoids CORS). */
+export const WHEP_URL =
+  process.env.NEXT_PUBLIC_WHEP_URL ?? "/api/mediamtx/whep?path=cam1";
+
 export type Alert = {
   id: string;
   camera_id: string | null;

@@ -194,7 +194,13 @@ def benchmark(
 
 def run(args: argparse.Namespace) -> int:
     source = resolve_source(args.source)
-    onnx_path = export_onnx(ENGINE_DIR / "yolov8n.pt", ENGINE_DIR / "yolov8n.onnx")
+    from export_onnx import DEFAULT_IMGSZ, DEFAULT_ONNX
+
+    onnx_path = export_onnx(
+        ENGINE_DIR / "yolov8n.pt",
+        DEFAULT_ONNX,
+        imgsz=DEFAULT_IMGSZ,
+    )
     onnx_engine = ONNXInferenceEngine(onnx_path, conf_thres=args.conf)
 
     # Only load heavy PyTorch weights when benchmarking (was slowing every run)

@@ -4,48 +4,111 @@ import { useEffect, useRef, useState } from "react";
 import Hls from "hls.js";
 import type { DetectionFrame, RoiZone } from "@/lib/api";
 import { WS_URL } from "@/lib/api";
+import { startWhepPlayback, type WhepSession } from "@/lib/whep";
+
+export type VideoSourceMode = "webrtc" | "hls" | "demo";
 
 type Props = {
+  mode?: VideoSourceMode;
   videoSrc?: string;
   hlsUrl?: string;
+  whepUrl?: string;
   zones?: RoiZone[];
   className?: string;
 };
 
-export function VideoMonitor({ videoSrc, hlsUrl, zones = [], className }: Props) {
+export function VideoMonitor({
+  mode = "webrtc",
+  videoSrc,
+  hlsUrl,
+  whepUrl = "/api/mediamtx/whep?path=cam1",
+  zones = [],
+  className,
+}: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [frame, setFrame] = useState<DetectionFrame | null>(null);
   const [wsState, setWsState] = useState<"connecting" | "live" | "offline">("connecting");
   const [videoError, setVideoError] = useState<string | null>(null);
+  const [streamState, setStreamState] = useState<"idle" | "connecting" | "live" | "error">(
+    "idle",
+  );
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
     setVideoError(null);
+    setStreamState("connecting");
     let hls: Hls | null = null;
+    let whep: WhepSession | null = null;
+    let cancelled = false;
 
-    if (hlsUrl) {
-      if (Hls.isSupported()) {
-        hls = new Hls({ enableWorker: true, lowLatencyMode: true });
-        hls.loadSource(hlsUrl);
-        hls.attachMedia(video);
-        hls.on(Hls.Events.ERROR, () => {
-          setVideoError("HLS unavailable — using demo / idle canvas");
-        });
-      } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
-        video.src = hlsUrl;
+    const run = async () => {
+      video.pause();
+      video.removeAttribute("src");
+      video.srcObject = null;
+      video.load();
+
+      if (mode === "webrtc") {
+        try {
+          whep = await startWhepPlayback(whepUrl, video);
+          if (cancelled) {
+            await whep.close();
+            return;
+          }
+          setStreamState("live");
+        } catch (err) {
+          if (cancelled) return;
+          setStreamState("error");
+          setVideoError(
+            err instanceof Error
+              ? `WebRTC/WHEP: ${err.message} — publish a stream to MediaMTX (cam1) or switch mode`
+              : "WebRTC failed",
+          );
+        }
+        return;
       }
-    } else if (videoSrc) {
-      video.src = videoSrc;
-    }
+
+      if (mode === "hls" && hlsUrl) {
+        if (Hls.isSupported()) {
+          hls = new Hls({ enableWorker: true, lowLatencyMode: true });
+          hls.loadSource(hlsUrl);
+          hls.attachMedia(video);
+          hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            if (!cancelled) setStreamState("live");
+          });
+          hls.on(Hls.Events.ERROR, () => {
+            if (!cancelled) {
+              setStreamState("error");
+              setVideoError("HLS unavailable — is MediaMTX publishing /cam1 ?");
+            }
+          });
+        } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+          video.src = hlsUrl;
+          setStreamState("live");
+        }
+        return;
+      }
+
+      if (videoSrc) {
+        video.loop = true;
+        video.src = videoSrc;
+        void video.play().catch(() => undefined);
+        setStreamState("live");
+      }
+    };
+
+    void run();
 
     return () => {
+      cancelled = true;
       hls?.destroy();
+      void whep?.close();
+      video.srcObject = null;
     };
-  }, [hlsUrl, videoSrc]);
+  }, [mode, hlsUrl, videoSrc, whepUrl]);
 
   useEffect(() => {
     let ws: WebSocket | null = null;
@@ -155,6 +218,19 @@ export function VideoMonitor({ videoSrc, hlsUrl, zones = [], className }: Props)
       <div className="mb-3 flex flex-wrap items-center gap-3 text-xs">
         <span
           className={
+            streamState === "live"
+              ? "text-accent"
+              : streamState === "connecting"
+                ? "text-amber-300"
+                : streamState === "error"
+                  ? "text-red-300"
+                  : "text-muted"
+          }
+        >
+          Video ({mode}): {streamState}
+        </span>
+        <span
+          className={
             wsState === "live"
               ? "text-accent"
               : wsState === "connecting"
@@ -172,7 +248,7 @@ export function VideoMonitor({ videoSrc, hlsUrl, zones = [], className }: Props)
             boxes {frame.boxes.length} · frame {frame.frame_index}
           </span>
         )}
-        {videoError && <span className="text-amber-300">{videoError}</span>}
+        {videoError && <span className="max-w-xl text-amber-300">{videoError}</span>}
       </div>
       <div
         ref={wrapRef}
@@ -184,8 +260,7 @@ export function VideoMonitor({ videoSrc, hlsUrl, zones = [], className }: Props)
           muted
           playsInline
           autoPlay
-          loop
-          controls
+          controls={mode !== "webrtc"}
         />
         <canvas
           ref={canvasRef}

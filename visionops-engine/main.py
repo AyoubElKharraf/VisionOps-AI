@@ -51,8 +51,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--onnx-model",
         type=str,
-        default=os.getenv("ONNX_MODEL", str(ENGINE_DIR / "yolov8n.onnx")),
-        help="Path to ONNX model (used with --use-onnx)",
+        default=os.getenv("ONNX_MODEL", str(ENGINE_DIR / "yolov8n_416.onnx")),
+        help="Path to ONNX model (used with --use-onnx). Default: yolov8n_416.onnx",
     )
     parser.add_argument(
         "--use-onnx",
@@ -190,14 +190,20 @@ def draw_detections(frame: np.ndarray, result) -> int:
 
 
 def load_onnx_engine(onnx_path: str, conf: float):
-    from export_onnx import export_onnx
+    from export_onnx import DEFAULT_IMGSZ, export_onnx
     from onnx_engine import ONNXInferenceEngine
 
     path = Path(onnx_path)
     if not path.exists():
         pt = ENGINE_DIR / "yolov8n.pt"
-        logger.info("ONNX missing — exporting from %s", pt)
-        path = export_onnx(pt, path)
+        # Infer imgsz from filename …_416.onnx / …_640.onnx, else default 416
+        imgsz = DEFAULT_IMGSZ
+        for candidate in (416, 640, 320, 512):
+            if f"_{candidate}" in path.stem:
+                imgsz = candidate
+                break
+        logger.info("ONNX missing — exporting from %s (imgsz=%d)", pt, imgsz)
+        path = export_onnx(pt, path, imgsz=imgsz)
     return ONNXInferenceEngine(path, conf_thres=conf)
 
 
