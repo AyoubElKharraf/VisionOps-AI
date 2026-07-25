@@ -194,14 +194,38 @@ PowerShell smoke test:
 ```text
 VisionOps_AI/
 ├── docker/
-├── scripts/test-phase1.ps1
-├── scripts/test-phase2.ps1
-├── scripts/test-phase3.ps1
-├── visionops-engine/       # YOLO / ONNX / ROI + alert_client
-├── visionops-backend/      # FastAPI + Celery + MinIO (Phase 3)
+├── .github/workflows/ci.yml
+├── scripts/test-phase1.ps1 … test-phase5.ps1
+├── scripts/bench_phase5.py
+├── visionops-engine/       # YOLO / ONNX / ROI + tests
+├── visionops-backend/      # FastAPI + Celery + MinIO + tests
 ├── visionops-ui/
 ├── docker-compose.yml
 └── .env.example
+```
+
+## Phase 5 — CI/CD & performance tests
+
+GitHub Actions (`.github/workflows/ci.yml`) runs on every push/PR:
+- **Engine**: Ruff + pytest (ROI geometry, NMS / letterbox)
+- **Backend**: Ruff + API tests against Postgres service
+- **UI**: `tsc --noEmit` + `next build`
+
+Local validation:
+
+```powershell
+docker compose up -d
+.\scripts\test-phase5.ps1
+# tests only:
+.\scripts\test-phase5.ps1 -SkipBench
+```
+
+ONNX bench only:
+
+```bat
+cd visionops-engine
+.\.venv\Scripts\activate.bat
+python ..\scripts\bench_phase5.py --frames 60
 ```
 
 ## Roadmap
@@ -209,4 +233,4 @@ VisionOps_AI/
 - **Phase 2** — ONNX export + ROI geometry (Shapely) ✅
 - **Phase 3** — Alerts API + Celery clip upload to MinIO ✅
 - **Phase 4** — Dashboard + canvas overlay + ROI editor + alert gallery ✅
-- **Phase 5** — CI/CD + performance tests
+- **Phase 5** — CI/CD + performance tests ✅
