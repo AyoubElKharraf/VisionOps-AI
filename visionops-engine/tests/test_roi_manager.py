@@ -17,6 +17,7 @@ from roi_manager import (  # noqa: E402
     TripwireLine,
     ZoneROI,
     detections_from_array,
+    zones_from_api,
 )
 import numpy as np
 
@@ -93,3 +94,45 @@ def test_detections_from_array():
     assert len(dets) == 1
     assert dets[0].class_name == "person"
     assert dets[0].confidence == pytest.approx(0.95)
+
+
+def test_zones_from_api_scales_normalized_points():
+    zones = zones_from_api(
+        [
+            {
+                "name": "loading-dock",
+                "points": [[0.1, 0.2], [0.9, 0.2], [0.9, 0.8], [0.1, 0.8]],
+                "max_allowed_objects": 1,
+                "forbidden_classes": ["person"],
+                "is_active": True,
+            }
+        ],
+        width=1000,
+        height=500,
+    )
+
+    assert len(zones) == 1
+    assert zones[0].points[0] == pytest.approx((100, 100))
+    assert zones[0].points[2] == pytest.approx((900, 400))
+    assert zones[0].max_allowed_objects == 1
+
+
+def test_zones_from_api_skips_inactive_and_invalid_zones():
+    zones = zones_from_api(
+        [
+            {
+                "name": "inactive",
+                "points": [[0, 0], [1, 0], [1, 1]],
+                "is_active": False,
+            },
+            {
+                "name": "invalid",
+                "points": [[0, 0], [1, 1]],
+                "is_active": True,
+            },
+        ],
+        width=640,
+        height=480,
+    )
+
+    assert zones == []

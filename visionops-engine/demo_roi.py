@@ -9,7 +9,6 @@ import logging
 import sys
 import time
 from collections import deque
-from pathlib import Path
 
 import cv2
 import numpy as np
@@ -17,7 +16,6 @@ from ultralytics import YOLO
 
 from export_onnx import export_onnx
 from main import (
-    DATA_DIR,
     ENGINE_DIR,
     create_writer,
     open_capture,
@@ -32,6 +30,7 @@ from roi_manager import (
     TripwireLine,
     ZoneROI,
     detections_from_array,
+    zones_from_api,
 )
 
 logging.basicConfig(
@@ -157,6 +156,18 @@ def parse_args() -> argparse.Namespace:
         default="http://127.0.0.1:8001",
         help="Backend base URL (default port 8001 — avoids Windows :8000 conflicts)",
     )
+    p.add_argument("--camera-name", type=str, default="demo-camera")
+    p.add_argument(
+        "--sync-roi",
+        action="store_true",
+        help="Load ROI zones from the backend even when alerts/streaming are disabled",
+    )
+    p.add_argument(
+        "--roi-refresh-seconds",
+        type=float,
+        default=5.0,
+        help="Interval between backend ROI refreshes",
+    )
     p.add_argument("--alert-cooldown", type=int, default=45, help="Min frames between identical API alerts")
     return p.parse_args()
 
@@ -230,11 +241,12 @@ def run(args: argparse.Namespace) -> int:
     crossing_total = 0
     posted_alerts = 0
     show = args.show
-    alert_client = (
-        AlertClient(args.api_url) if (args.post_alerts or args.stream_detections) else None
-    )
+    sync_roi = args.sync_roi or args.post_alerts or args.stream_detections
+    alert_client = AlertClient(args.api_url) if sync_roi else None
     last_posted: dict[str, int] = {}
     stream_every = max(1, args.stream_every)
+    roi_refresh_seconds = max(1.0, args.roi_refresh_seconds)
+    next_roi_refresh_at = 0.0
 
     logger.info(
         "Running ROI demo | source=%s | max_frames=%d | post_alerts=%s | stream=%s (every %d) | write_mp4=%s",
@@ -251,6 +263,21 @@ def run(args: argparse.Namespace) -> int:
             ok, frame = capture.read()
             if not ok:
                 break
+
+            if alert_client is not None and sync_roi:
+                now = time.monotonic()
+                updated, remote_zones = alert_client.poll_roi_zones()
+                if updated:
+                    zones = zones_from_api(remote_zones, width, height)
+                    roi.replace_zones(zones)
+                    logger.info(
+                        "ROI configuration refreshed | camera=%s | active_zones=%d",
+                        args.camera_name,
+                        len(zones),
+                    )
+                if now >= next_roi_refresh_at:
+                    if alert_client.request_roi_zones(args.camera_name):
+                        next_roi_refresh_at = now + roi_refresh_seconds
 
             dets_arr, infer_ms = onnx_engine.predict(frame)
             fps_window.append(1000.0 / infer_ms if infer_ms > 0 else 0.0)
@@ -286,6 +313,7 @@ def run(args: argparse.Namespace) -> int:
                     boxes=boxes_payload,
                     infer_ms=infer_ms,
                     zone_alerts=[a.message for a in alerts],
+                    camera_name=args.camera_name,
                 )
 
             if alerts:
@@ -298,7 +326,7 @@ def run(args: argparse.Namespace) -> int:
                             alert_client.create_alert(
                                 alert_type="roi_intrusion",
                                 message=a.message,
-                                camera_name="demo-camera",
+                                camera_name=args.camera_name,
                                 zone_name=a.zone_name,
                                 class_name=(a.offending_classes[0] if a.offending_classes else None),
                                 source_video_path=source,
@@ -317,7 +345,7 @@ def run(args: argparse.Namespace) -> int:
                         alert_client.create_alert(
                             alert_type="tripwire",
                             message=c.message,
-                            camera_name="demo-camera",
+                            camera_name=args.camera_name,
                             zone_name=c.line_name,
                             class_name=c.class_name,
                             track_id=c.track_id,
@@ -333,23 +361,25 @@ def run(args: argparse.Namespace) -> int:
             need_draw = writer is not None or show
             if need_draw:
                 annotated = frame.copy()
-                zone = roi.zones[0]
-                zone_pts = [(int(x), int(y)) for x, y in zone.points]
-                zone_color = (40, 40, 220) if alerts else (40, 200, 80)
-                draw_semi_transparent_polygon(annotated, zone_pts, zone_color, alpha=0.35)
-                label = "INTRUSION" if alerts else "ZONE OK"
-                cv2.putText(
-                    annotated,
-                    f"{zone.name}: {label}",
-                    (zone_pts[0][0], max(20, zone_pts[0][1] - 8)),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.6,
-                    zone_color,
-                    2,
-                    cv2.LINE_AA,
-                )
-                wire = roi.tripwires[0]
-                draw_tripwire(annotated, wire.start, wire.end)
+                alerted_zone_names = {alert.zone_name for alert in alerts}
+                for zone in roi.zones:
+                    zone_pts = [(int(x), int(y)) for x, y in zone.points]
+                    is_alerted = zone.name in alerted_zone_names
+                    zone_color = (40, 40, 220) if is_alerted else (40, 200, 80)
+                    draw_semi_transparent_polygon(annotated, zone_pts, zone_color, alpha=0.35)
+                    label = "INTRUSION" if is_alerted else "ZONE OK"
+                    cv2.putText(
+                        annotated,
+                        f"{zone.name}: {label}",
+                        (zone_pts[0][0], max(20, zone_pts[0][1] - 8)),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.6,
+                        zone_color,
+                        2,
+                        cv2.LINE_AA,
+                    )
+                for wire in roi.tripwires:
+                    draw_tripwire(annotated, wire.start, wire.end)
                 draw_boxes(annotated, detections)
                 hud = f"ONNX {avg_fps:.1f}FPS | infer {infer_ms:.1f}ms | cross={crossing_total}"
                 cv2.putText(

@@ -1,4 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  allowedSessionResource,
+  whepEndpoint,
+} from "./targets.mjs";
 
 /**
  * Same-origin proxy for MediaMTX WHEP signaling (avoids browser CORS).
@@ -12,7 +16,10 @@ const MEDIAMTX_WEBRTC =
 
 export async function POST(req: NextRequest) {
   const path = req.nextUrl.searchParams.get("path") || "cam1";
-  const target = `${MEDIAMTX_WEBRTC.replace(/\/$/, "")}/${path}/whep`;
+  const target = whepEndpoint(MEDIAMTX_WEBRTC, path);
+  if (!target) {
+    return NextResponse.json({ error: "invalid MediaMTX path" }, { status: 400 });
+  }
   const body = await req.text();
 
   let upstream: Response;
@@ -29,7 +36,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         error: "MediaMTX unreachable",
-        target,
+        target: target.toString(),
         detail: err instanceof Error ? err.message : String(err),
       },
       { status: 502 },
@@ -42,9 +49,14 @@ export async function POST(req: NextRequest) {
 
   const location = upstream.headers.get("Location") || upstream.headers.get("location");
   if (location) {
-    // Expose absolute MediaMTX resource URL to the client for DELETE
-    headers.set("Location", location);
-    headers.set("Access-Control-Expose-Headers", "Location");
+    const sessionResource = allowedSessionResource(
+      MEDIAMTX_WEBRTC,
+      new URL(location, target).toString(),
+    );
+    if (sessionResource) {
+      headers.set("Location", sessionResource.toString());
+      headers.set("Access-Control-Expose-Headers", "Location");
+    }
   }
 
   return new NextResponse(answer, {
@@ -58,9 +70,13 @@ export async function DELETE(req: NextRequest) {
   if (!resource) {
     return NextResponse.json({ error: "missing resource" }, { status: 400 });
   }
+  const target = allowedSessionResource(MEDIAMTX_WEBRTC, resource);
+  if (!target) {
+    return NextResponse.json({ error: "invalid MediaMTX resource" }, { status: 400 });
+  }
 
   try {
-    const upstream = await fetch(resource, {
+    const upstream = await fetch(target, {
       method: "DELETE",
       cache: "no-store",
     });

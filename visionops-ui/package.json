@@ -6,7 +6,8 @@
     "dev": "next dev -p 3000",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test:whep": "node --test app/api/mediamtx/whep/targets.test.mjs"
   },
   "dependencies": {
     "clsx": "^2.1.1",

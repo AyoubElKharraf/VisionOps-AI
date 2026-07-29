@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections import defaultdict, deque
 from enum import Enum
-from typing import Iterable
+from typing import Any, Iterable
 
 import numpy as np
 from pydantic import BaseModel, Field, field_validator
@@ -124,6 +124,10 @@ class ROIEngine:
 
     def add_zone(self, zone: ZoneROI) -> None:
         self.zones.append(zone)
+
+    def replace_zones(self, zones: Iterable[ZoneROI]) -> None:
+        """Atomically replace zone rules without resetting tracking state."""
+        self.zones = list(zones)
 
     def add_tripwire(self, line: TripwireLine) -> None:
         self.tripwires.append(line)
@@ -278,6 +282,48 @@ class ROIEngine:
         else:
             return []
         return [(int(x), int(y)) for x, y in coords]
+
+
+def zones_from_api(
+    payload: Iterable[dict[str, Any]],
+    width: int,
+    height: int,
+) -> list[ZoneROI]:
+    """Convert backend ROI records (normalized or pixel points) for one frame size."""
+    zones: list[ZoneROI] = []
+    for item in payload:
+        if not item.get("is_active", True):
+            continue
+
+        raw_points = item.get("points")
+        if not isinstance(raw_points, list) or len(raw_points) < 3:
+            continue
+        try:
+            points = [(float(point[0]), float(point[1])) for point in raw_points]
+        except (IndexError, TypeError, ValueError):
+            continue
+
+        is_normalized = all(0.0 <= x <= 1.0 and 0.0 <= y <= 1.0 for x, y in points)
+        if is_normalized:
+            points = [(x * width, y * height) for x, y in points]
+
+        try:
+            zone = ZoneROI(
+                name=str(item.get("name") or "zone"),
+                points=points,
+                max_allowed_objects=max(0, int(item.get("max_allowed_objects", 0))),
+                forbidden_classes=[
+                    str(class_name)
+                    for class_name in (item.get("forbidden_classes") or [])
+                ],
+            )
+        except (TypeError, ValueError):
+            continue
+        polygon = zone.to_polygon()
+        if polygon.is_empty or polygon.area <= 0:
+            continue
+        zones.append(zone)
+    return zones
 
 
 def detections_from_array(
