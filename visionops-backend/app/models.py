@@ -21,10 +21,30 @@ class AlertType(str, enum.Enum):
 
 
 class AlertStatus(str, enum.Enum):
+    """Media pipeline status (Celery snapshot/clip)."""
+
     pending = "pending"
     processing = "processing"
     ready = "ready"
     failed = "failed"
+
+
+class IncidentStatus(str, enum.Enum):
+    """Operator workflow status for an alert/incident."""
+
+    open = "open"
+    acknowledged = "acknowledged"
+    resolved = "resolved"
+
+
+class AlertEventType(str, enum.Enum):
+    created = "created"
+    acknowledged = "acknowledged"
+    assigned = "assigned"
+    commented = "commented"
+    resolved = "resolved"
+    reopened = "reopened"
+    reprocessed = "reprocessed"
 
 
 class Camera(Base):
@@ -72,12 +92,22 @@ class Alert(Base):
     status: Mapped[AlertStatus] = mapped_column(
         Enum(AlertStatus, name="alert_status"), default=AlertStatus.pending, nullable=False
     )
+    incident_status: Mapped[str] = mapped_column(
+        String(32), default=IncidentStatus.open.value, nullable=False
+    )
     zone_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     class_name: Mapped[str | None] = mapped_column(String(80), nullable=True)
     track_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     message: Mapped[str] = mapped_column(Text, nullable=False)
     metadata_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
+    assigned_to: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    acknowledged_by: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolved_by: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolution_note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Local source hints for Celery workers
     source_video_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
@@ -93,3 +123,26 @@ class Alert(Base):
     )
 
     camera: Mapped[Camera | None] = relationship(back_populates="alerts")
+    events: Mapped[list[AlertEvent]] = relationship(
+        back_populates="alert",
+        cascade="all, delete-orphan",
+        order_by="AlertEvent.created_at",
+    )
+
+
+class AlertEvent(Base):
+    """Immutable timeline for incident workflow actions."""
+
+    __tablename__ = "alert_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    alert_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("alerts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    event_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    actor: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    metadata_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    alert: Mapped[Alert] = relationship(back_populates="events")

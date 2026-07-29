@@ -8,7 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from app.models import AlertStatus, AlertType
+from app.models import AlertStatus, AlertType, IncidentStatus
 
 
 class CameraCreate(BaseModel):
@@ -53,18 +53,37 @@ class AlertCreate(BaseModel):
     enqueue_media: bool = True
 
 
+class AlertEventRead(BaseModel):
+    id: uuid.UUID
+    alert_id: uuid.UUID
+    event_type: str
+    actor: str | None
+    message: str
+    metadata_json: dict[str, Any] | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class AlertRead(BaseModel):
     id: uuid.UUID
     camera_id: uuid.UUID | None
     camera_name: str | None = None
     alert_type: AlertType
     status: AlertStatus
+    incident_status: IncidentStatus | str = IncidentStatus.open
     zone_name: str | None
     class_name: str | None
     track_id: int | None
     confidence: float | None
     message: str
     metadata_json: dict[str, Any] | None
+    assigned_to: str | None = None
+    acknowledged_by: str | None = None
+    acknowledged_at: datetime | None = None
+    resolved_by: str | None = None
+    resolved_at: datetime | None = None
+    resolution_note: str | None = None
     source_video_path: str | None
     frame_index: int | None
     snapshot_object_key: str | None
@@ -74,5 +93,22 @@ class AlertRead(BaseModel):
     updated_at: datetime
     snapshot_url: str | None = None
     clip_url: str | None = None
+    events: list[AlertEventRead] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
+
+
+class AlertActorNote(BaseModel):
+    actor: str | None = Field(default="operator", max_length=120)
+    note: str | None = Field(default=None, max_length=2000)
+
+
+class AlertAssign(BaseModel):
+    assignee: str = Field(..., min_length=1, max_length=120)
+    actor: str | None = Field(default="operator", max_length=120)
+    note: str | None = Field(default=None, max_length=2000)
+
+
+class AlertComment(BaseModel):
+    message: str = Field(..., min_length=1, max_length=2000)
+    actor: str | None = Field(default="operator", max_length=120)

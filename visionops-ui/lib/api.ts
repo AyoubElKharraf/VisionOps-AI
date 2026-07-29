@@ -58,22 +58,41 @@ export type Camera = {
   created_at: string;
 };
 
+export type AlertEvent = {
+  id: string;
+  alert_id: string;
+  event_type: string;
+  actor: string | null;
+  message: string;
+  metadata_json?: Record<string, unknown> | null;
+  created_at: string;
+};
+
 export type Alert = {
   id: string;
   camera_id: string | null;
   camera_name?: string | null;
   alert_type: string;
   status: string;
+  incident_status: string;
   zone_name: string | null;
   class_name: string | null;
   track_id: number | null;
   confidence: number | null;
   message: string;
+  assigned_to?: string | null;
+  acknowledged_by?: string | null;
+  acknowledged_at?: string | null;
+  resolved_by?: string | null;
+  resolved_at?: string | null;
+  resolution_note?: string | null;
   snapshot_object_key: string | null;
   clip_object_key: string | null;
   snapshot_url: string | null;
   clip_url: string | null;
   created_at: string;
+  updated_at?: string;
+  events?: AlertEvent[];
 };
 
 export type RoiZone = {
@@ -158,11 +177,42 @@ export const visionopsApi = {
     }),
   deleteCamera: (id: string) =>
     api<void>(`/api/v1/cameras/${id}`, { method: "DELETE" }),
-  listAlerts: (limit = 40, cameraName?: string) => {
+  listAlerts: (limit = 40, cameraName?: string, incidentStatus?: string) => {
     const params = new URLSearchParams({ limit: String(limit) });
     if (cameraName) params.set("camera_name", cameraName);
+    if (incidentStatus) params.set("incident_status", incidentStatus);
     return api<Alert[]>(`/api/v1/alerts?${params.toString()}`);
   },
+  getAlert: (id: string) => api<Alert>(`/api/v1/alerts/${id}`),
+  listAlertEvents: (id: string) => api<AlertEvent[]>(`/api/v1/alerts/${id}/events`),
+  acknowledgeAlert: (id: string, body: { actor?: string; note?: string } = {}) =>
+    api<Alert>(`/api/v1/alerts/${id}/acknowledge`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  assignAlert: (
+    id: string,
+    body: { assignee: string; actor?: string; note?: string },
+  ) =>
+    api<Alert>(`/api/v1/alerts/${id}/assign`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  resolveAlert: (id: string, body: { actor?: string; note?: string } = {}) =>
+    api<Alert>(`/api/v1/alerts/${id}/resolve`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  reopenAlert: (id: string, body: { actor?: string; note?: string } = {}) =>
+    api<Alert>(`/api/v1/alerts/${id}/reopen`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  commentAlert: (id: string, body: { message: string; actor?: string }) =>
+    api<Alert>(`/api/v1/alerts/${id}/comments`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   listZones: (cameraName = "demo-camera") =>
     api<RoiZone[]>(`/api/v1/roi-zones?camera_name=${encodeURIComponent(cameraName)}`),
   createZone: (body: {
