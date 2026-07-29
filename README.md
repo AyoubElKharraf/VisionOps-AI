@@ -90,21 +90,25 @@ py -3.12 -m venv .venv
 pip install -r requirements.txt
 
 # API (use 8001 if :8000 is busy on Windows)
+# Copy root .env.example → .env and set VISIONOPS_API_KEY
+$env:VISIONOPS_API_KEY = "visionops-dev-key"
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8001
 
 # Celery worker (solo pool required on Windows) — second terminal
 celery -A app.celery_app.celery_app worker --loglevel=info --pool=solo
 ```
 
-- Health: [http://127.0.0.1:8001/health](http://127.0.0.1:8001/health)
+- Health: [http://127.0.0.1:8001/health](http://127.0.0.1:8001/health) *(public)*
 - Docs: [http://127.0.0.1:8001/docs](http://127.0.0.1:8001/docs)
-- `POST /api/v1/cameras` · `POST /api/v1/alerts` · `GET /api/v1/alerts`
+- `POST /api/v1/cameras` · `POST /api/v1/alerts` · `GET /api/v1/alerts` — require header `X-API-Key` when `VISIONOPS_API_KEY` is set
+- WebSocket detections: `?api_key=...` (browsers cannot send custom headers)
 
 ## UI — Phase 4 Control Center
 
 ```powershell
 cd visionops-ui
 copy .env.local.example .env.local
+# Ensure NEXT_PUBLIC_API_KEY matches VISIONOPS_API_KEY
 npm install
 npm run dev
 ```
@@ -132,7 +136,7 @@ Pages:
 ```bat
 cd visionops-engine
 .\.venv\Scripts\activate.bat
-python demo_roi.py --skip-benchmark --max-frames 0 --stream-detections --stream-every 2 --api-url http://127.0.0.1:8001
+python demo_roi.py --skip-benchmark --max-frames 0 --stream-detections --stream-every 2 --api-url http://127.0.0.1:8001 --api-key visionops-dev-key
 ```
 
 WHEP signaling is proxied by Next.js (`/api/mediamtx/whep`) to avoid browser CORS.

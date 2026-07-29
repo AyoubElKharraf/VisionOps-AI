@@ -35,10 +35,17 @@ app.add_middleware(
 app.include_router(cameras.router, prefix=settings.api_prefix)
 app.include_router(alerts.router, prefix=settings.api_prefix)
 app.include_router(stream_router.router, prefix=settings.api_prefix)
+app.include_router(stream_router.ws_router, prefix=settings.api_prefix)
 
 
 @app.on_event("startup")
 def on_startup() -> None:
+    if settings.visionops_api_key:
+        logger.info("API key auth enabled for %s/*", settings.api_prefix)
+    else:
+        logger.warning(
+            "VISIONOPS_API_KEY is empty — /api/v1 is open. Set a key for local/demo security."
+        )
     init_db()
     try:
         bucket = ensure_bucket()

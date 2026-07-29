@@ -14,6 +14,8 @@ class Settings(BaseSettings):
 
     app_name: str = "VisionOps AI Backend"
     api_prefix: str = "/api/v1"
+    # Empty = auth disabled (local/CI). Set VISIONOPS_API_KEY to enforce X-API-Key.
+    visionops_api_key: str = ""
     database_url: str = "postgresql://visionops:visionops_secret@localhost:5434/visionops_db"
 
     celery_broker_url: str = "redis://localhost:6380/0"

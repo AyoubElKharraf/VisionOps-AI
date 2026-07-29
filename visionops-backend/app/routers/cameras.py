@@ -7,11 +7,16 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.auth import require_api_key
 from app.database import get_db
 from app.models import Camera
 from app.schemas import CameraCreate, CameraRead
 
-router = APIRouter(prefix="/cameras", tags=["cameras"])
+router = APIRouter(
+    prefix="/cameras",
+    tags=["cameras"],
+    dependencies=[Depends(require_api_key)],
+)
 
 
 @router.get("", response_model=list[CameraRead])

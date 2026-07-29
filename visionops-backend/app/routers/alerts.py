@@ -7,13 +7,18 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
+from app.auth import require_api_key
 from app.database import get_db
 from app.minio_client import ensure_bucket, presigned_get_url
 from app.models import Alert, AlertStatus, Camera
 from app.schemas import AlertCreate, AlertRead
 from app.tasks import process_alert_media
 
-router = APIRouter(prefix="/alerts", tags=["alerts"])
+router = APIRouter(
+    prefix="/alerts",
+    tags=["alerts"],
+    dependencies=[Depends(require_api_key)],
+)
 
 
 def _resolve_camera(db: Session, payload: AlertCreate) -> uuid.UUID | None:

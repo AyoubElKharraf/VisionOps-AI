@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 import time
 from collections import deque
@@ -156,6 +157,12 @@ def parse_args() -> argparse.Namespace:
         default="http://127.0.0.1:8001",
         help="Backend base URL (default port 8001 — avoids Windows :8000 conflicts)",
     )
+    p.add_argument(
+        "--api-key",
+        type=str,
+        default=os.environ.get("VISIONOPS_API_KEY", ""),
+        help="Backend API key (or set VISIONOPS_API_KEY)",
+    )
     p.add_argument("--camera-name", type=str, default="demo-camera")
     p.add_argument(
         "--sync-roi",
@@ -242,7 +249,9 @@ def run(args: argparse.Namespace) -> int:
     posted_alerts = 0
     show = args.show
     sync_roi = args.sync_roi or args.post_alerts or args.stream_detections
-    alert_client = AlertClient(args.api_url) if sync_roi else None
+    alert_client = (
+        AlertClient(args.api_url, api_key=args.api_key or None) if sync_roi else None
+    )
     last_posted: dict[str, int] = {}
     stream_every = max(1, args.stream_every)
     roi_refresh_seconds = max(1.0, args.roi_refresh_seconds)

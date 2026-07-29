@@ -25,11 +25,14 @@ class AlertClient:
         base_url: str = "http://127.0.0.1:8001",
         timeout: float = 2.0,
         detection_timeout: float = 0.4,
+        api_key: str | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.detection_timeout = detection_timeout
         self._session = requests.Session()
+        if api_key:
+            self._session.headers["X-API-Key"] = api_key
         self._pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="vo-net")
         self._det_future: Future | None = None
         self._roi_future: Future | None = None

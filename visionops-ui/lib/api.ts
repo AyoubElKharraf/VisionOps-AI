@@ -1,6 +1,8 @@
 export const API_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8001";
 
+export const API_KEY = process.env.NEXT_PUBLIC_API_KEY ?? "";
+
 export const WS_URL =
   process.env.NEXT_PUBLIC_WS_URL ??
   "ws://127.0.0.1:8001/api/v1/ws/detections";
@@ -11,6 +13,19 @@ export const HLS_URL =
 /** Same-origin Next.js proxy → MediaMTX WHEP (avoids CORS). */
 export const WHEP_URL =
   process.env.NEXT_PUBLIC_WHEP_URL ?? "/api/mediamtx/whep?path=cam1";
+
+/** WebSocket URL with optional API key query (browsers cannot set X-API-Key). */
+export function detectionsWsUrl(base = WS_URL, apiKey = API_KEY): string {
+  if (!apiKey) return base;
+  try {
+    const url = new URL(base);
+    url.searchParams.set("api_key", apiKey);
+    return url.toString();
+  } catch {
+    const join = base.includes("?") ? "&" : "?";
+    return `${base}${join}api_key=${encodeURIComponent(apiKey)}`;
+  }
+}
 
 export type Alert = {
   id: string;
@@ -62,12 +77,17 @@ export type DetectionFrame = {
 };
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(init?.headers as Record<string, string> | undefined),
+  };
+  if (API_KEY) {
+    headers["X-API-Key"] = API_KEY;
+  }
+
   const res = await fetch(`${API_URL}${path}`, {
     ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {}),
-    },
+    headers,
     cache: "no-store",
   });
   if (!res.ok) {

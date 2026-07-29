@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Hls from "hls.js";
 import type { DetectionFrame, RoiZone } from "@/lib/api";
-import { WS_URL } from "@/lib/api";
+import { detectionsWsUrl } from "@/lib/api";
 import { startWhepPlayback, type WhepSession } from "@/lib/whep";
 
 export type VideoSourceMode = "webrtc" | "hls" | "demo";
@@ -118,7 +118,7 @@ export function VideoMonitor({
     const connect = () => {
       if (closed) return;
       setWsState("connecting");
-      ws = new WebSocket(WS_URL);
+      ws = new WebSocket(detectionsWsUrl());
       ws.onopen = () => setWsState("live");
       ws.onmessage = (ev) => {
         try {
