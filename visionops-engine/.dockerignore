@@ -1,0 +1,15 @@
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+.mypy_cache
+tests
+data/*.mp4
+*.pt
+*.onnx
+*.engine
+*.md
+.gitignore
+.env
+.env.*

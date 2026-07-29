@@ -58,10 +58,17 @@ def presigned_get_url(object_key: str, expires_hours: int = 24) -> str | None:
     try:
         client = get_minio_client()
         settings = get_settings()
-        return client.presigned_get_object(
+        url = client.presigned_get_object(
             settings.minio_bucket,
             object_key,
             expires=timedelta(hours=expires_hours),
         )
+        public = (settings.minio_public_endpoint or "").strip()
+        internal = settings.minio_endpoint.strip()
+        if public and public != internal:
+            scheme = "https" if settings.minio_secure else "http"
+            url = url.replace(f"http://{internal}", f"{scheme}://{public}", 1)
+            url = url.replace(f"https://{internal}", f"{scheme}://{public}", 1)
+        return url
     except S3Error:
         return None

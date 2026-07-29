@@ -9,12 +9,12 @@ services:
       - "${MEDIAMTX_RTMP_PORT:-1935}:1935"
       - "8888:8888"
       - "9997:9997"
-      # WebRTC ICE (UDP) — required for real browser playback
       - "8189:8189/udp"
     volumes:
       - ./docker/mediamtx.yml:/mediamtx.yml:ro
     environment:
       MTX_CONFLEVEL: info
+    networks: [visionops]
 
   postgres:
     image: postgres:16-alpine
@@ -34,6 +34,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    networks: [visionops]
 
   redis:
     image: redis:7-alpine
@@ -48,6 +49,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    networks: [visionops]
 
   minio:
     image: minio/minio:latest
@@ -62,8 +64,143 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-visionops_minio_secret}
     volumes:
       - visionops_minio_data:/data
+    networks: [visionops]
+
+  backend:
+    build:
+      context: ./visionops-backend
+    image: visionops-backend:local
+    container_name: visionops-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-visionops}:${POSTGRES_PASSWORD:-visionops_secret}@postgres:5432/${POSTGRES_DB:-visionops_db}
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      MINIO_ENDPOINT: minio:9000
+      MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:-127.0.0.1:9001}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-visionops_minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-visionops_minio_secret}
+      MINIO_BUCKET: ${MINIO_BUCKET:-visionops-media}
+      MINIO_SECURE: ${MINIO_SECURE:-false}
+      VISIONOPS_API_KEY: ${VISIONOPS_API_KEY:-visionops-dev-key}
+    ports:
+      - "${API_PORT:-8001}:8001"
+    volumes:
+      - ./visionops-engine/data:/app/data:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 25s
+    networks: [visionops]
+
+  worker:
+    build:
+      context: ./visionops-backend
+    image: visionops-backend:local
+    container_name: visionops-worker
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    command: ["celery", "-A", "app.celery_app.celery_app", "worker", "--loglevel=info"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-visionops}:${POSTGRES_PASSWORD:-visionops_secret}@postgres:5432/${POSTGRES_DB:-visionops_db}
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      MINIO_ENDPOINT: minio:9000
+      MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:-127.0.0.1:9001}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-visionops_minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-visionops_minio_secret}
+      MINIO_BUCKET: ${MINIO_BUCKET:-visionops-media}
+      MINIO_SECURE: ${MINIO_SECURE:-false}
+      VISIONOPS_API_KEY: ${VISIONOPS_API_KEY:-visionops-dev-key}
+    volumes:
+      - ./visionops-engine/data:/app/data:ro
+    networks: [visionops]
+
+  engine:
+    build:
+      context: ./visionops-engine
+    image: visionops-engine:local
+    container_name: visionops-engine
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      VIDEO_SOURCE: ${VIDEO_SOURCE:-}
+      WEIGHTS_DIR: /models
+      VISIONOPS_API_KEY: ${VISIONOPS_API_KEY:-visionops-dev-key}
+      YOLO_CONF: ${YOLO_CONF:-0.25}
+      USE_ONNX: ${USE_ONNX:-true}
+    command:
+      [
+        "python",
+        "demo_roi.py",
+        "--skip-benchmark",
+        "--max-frames",
+        "0",
+        "--stream-detections",
+        "--post-alerts",
+        "--sync-roi",
+        "--stream-every",
+        "2",
+        "--api-url",
+        "http://backend:8001",
+        "--api-key",
+        "${VISIONOPS_API_KEY:-visionops-dev-key}",
+        "--camera-name",
+        "${CAMERA_NAME:-demo-camera}",
+      ]
+    volumes:
+      - ./visionops-engine/data:/app/data
+      - visionops_engine_weights:/models
+      - visionops_ultralytics_cache:/root/.cache
+    networks: [visionops]
+
+  ui:
+    build:
+      context: ./visionops-ui
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://127.0.0.1:8001}
+        NEXT_PUBLIC_API_KEY: ${VISIONOPS_API_KEY:-visionops-dev-key}
+        NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-ws://127.0.0.1:8001/api/v1/ws/detections}
+        NEXT_PUBLIC_HLS_URL: ${NEXT_PUBLIC_HLS_URL:-http://127.0.0.1:8888/cam1/index.m3u8}
+        NEXT_PUBLIC_WHEP_URL: ${NEXT_PUBLIC_WHEP_URL:-/api/mediamtx/whep?path=cam1}
+    image: visionops-ui:local
+    container_name: visionops-ui
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+      mediamtx:
+        condition: service_started
+    environment:
+      MEDIAMTX_WEBRTC_BASE: http://mediamtx:8889
+    ports:
+      - "${UI_PORT:-3000}:3000"
+    networks: [visionops]
+
+networks:
+  visionops:
+    driver: bridge
 
 volumes:
   visionops_pg_data:
   visionops_redis_data:
   visionops_minio_data:
+  visionops_engine_weights:
+  visionops_ultralytics_cache:

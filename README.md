@@ -18,12 +18,50 @@ Real-time computer vision & video surveillance platform — monorepo for **Compu
 - Node.js **20+** (UI only)
 - PowerShell 5+ (Windows test script)
 
-## Quick start — infrastructure
+## Quick start — full stack (Docker)
+
+One command starts infra + API + Celery worker + vision engine + UI:
 
 ```powershell
 cd VisionOps_AI
 Copy-Item .env.example .env
-docker compose up -d
+docker compose up -d --build
+docker compose ps
+```
+
+| Service | URL / port |
+|---------|------------|
+| UI | [http://localhost:3000](http://localhost:3000) |
+| API health | [http://127.0.0.1:8001/health](http://127.0.0.1:8001/health) |
+| API docs | [http://127.0.0.1:8001/docs](http://127.0.0.1:8001/docs) |
+| MediaMTX WHEP / HLS | `8889` / `8888` |
+| MinIO console | [http://127.0.0.1:9002](http://127.0.0.1:9002) |
+
+Useful commands:
+
+```powershell
+# logs
+docker compose logs -f backend worker engine ui
+
+# infra only (no app images)
+docker compose up -d mediamtx postgres redis minio
+
+# stop everything
+docker compose down
+```
+
+Notes:
+- First engine start downloads YOLO weights (can take several minutes).
+- Browser calls `127.0.0.1` ports; containers talk over the `visionops` Docker network.
+- Set matching `VISIONOPS_API_KEY` (default `visionops-dev-key`).
+- Optional live camera publish: `.\scripts\publish-demo-mediamtx.ps1`
+
+## Quick start — infrastructure only
+
+```powershell
+cd VisionOps_AI
+Copy-Item .env.example .env
+docker compose up -d mediamtx postgres redis minio
 docker compose ps
 ```
 
