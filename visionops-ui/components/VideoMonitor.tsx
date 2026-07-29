@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Hls from "hls.js";
 import type { DetectionFrame, RoiZone } from "@/lib/api";
 import { detectionsWsUrl } from "@/lib/api";
+import { objectContainRect, projectVideoPoint } from "@/lib/videoGeometry.mjs";
 import { startWhepPlayback, type WhepSession } from "@/lib/whep";
 
 export type VideoSourceMode = "webrtc" | "hls" | "demo";
@@ -14,6 +15,7 @@ type Props = {
   hlsUrl?: string;
   whepUrl?: string;
   zones?: RoiZone[];
+  cameraName?: string;
   className?: string;
 };
 
@@ -23,6 +25,7 @@ export function VideoMonitor({
   hlsUrl,
   whepUrl = "/api/mediamtx/whep?path=cam1",
   zones = [],
+  cameraName = "demo-camera",
   className,
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -122,7 +125,16 @@ export function VideoMonitor({
       ws.onopen = () => setWsState("live");
       ws.onmessage = (ev) => {
         try {
-          setFrame(JSON.parse(ev.data) as DetectionFrame);
+          const next = JSON.parse(ev.data) as DetectionFrame;
+          const ageMs = Date.now() - next.captured_at_ms;
+          if (
+            next.camera_name === cameraName &&
+            Number.isFinite(next.captured_at_ms) &&
+            ageMs > -1000 &&
+            ageMs < 10_000
+          ) {
+            setFrame(next);
+          }
         } catch {
           /* ignore */
         }
@@ -140,7 +152,7 @@ export function VideoMonitor({
       if (retry) clearTimeout(retry);
       ws?.close();
     };
-  }, []);
+  }, [cameraName]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -162,17 +174,16 @@ export function VideoMonitor({
 
       const srcW = frame?.width || video?.videoWidth || w;
       const srcH = frame?.height || video?.videoHeight || h;
-      const sx = w / srcW;
-      const sy = h / srcH;
+      const videoRect = objectContainRect(w, h, srcW, srcH);
 
       for (const zone of zones) {
         if (!zone.points?.length) continue;
         ctx.beginPath();
         zone.points.forEach(([x, y], i) => {
-          const px = x <= 1 && y <= 1 ? x * w : x * sx;
-          const py = x <= 1 && y <= 1 ? y * h : y * sy;
-          if (i === 0) ctx.moveTo(px, py);
-          else ctx.lineTo(px, py);
+          const normalized = x >= 0 && x <= 1 && y >= 0 && y <= 1;
+          const point = projectVideoPoint(x, y, videoRect, normalized);
+          if (i === 0) ctx.moveTo(point.x, point.y);
+          else ctx.lineTo(point.x, point.y);
         });
         ctx.closePath();
         ctx.fillStyle = "rgba(239, 68, 68, 0.18)";
@@ -184,10 +195,10 @@ export function VideoMonitor({
 
       if (frame?.boxes?.length) {
         for (const box of frame.boxes) {
-          const x1 = box.x1 * sx;
-          const y1 = box.y1 * sy;
-          const x2 = box.x2 * sx;
-          const y2 = box.y2 * sy;
+          const topLeft = projectVideoPoint(box.x1, box.y1, videoRect);
+          const bottomRight = projectVideoPoint(box.x2, box.y2, videoRect);
+          const { x: x1, y: y1 } = topLeft;
+          const { x: x2, y: y2 } = bottomRight;
           ctx.strokeStyle = "#3dd6c6";
           ctx.lineWidth = 2;
           ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
@@ -246,6 +257,11 @@ export function VideoMonitor({
         {frame && (
           <span className="text-muted">
             boxes {frame.boxes.length} · frame {frame.frame_index}
+          </span>
+        )}
+        {frame?.received_at_ms != null && (
+          <span className="text-muted">
+            transport {Math.max(0, frame.received_at_ms - frame.captured_at_ms)} ms
           </span>
         )}
         {videoError && <span className="max-w-xl text-amber-300">{videoError}</span>}

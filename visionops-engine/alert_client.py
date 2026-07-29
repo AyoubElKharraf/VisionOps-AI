@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import logging
+import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Any
 
@@ -108,8 +109,10 @@ class AlertClient:
         width: int,
         height: int,
         frame_index: int,
+        captured_at_ms: int,
         boxes: list[dict],
         infer_ms: float | None = None,
+        source_position_ms: float | None = None,
         zone_alerts: list[str] | None = None,
         camera_name: str = "demo-camera",
     ) -> bool:
@@ -122,6 +125,9 @@ class AlertClient:
         payload = {
             "camera_name": camera_name,
             "frame_index": frame_index,
+            "captured_at_ms": captured_at_ms,
+            "sent_at_ms": time.time_ns() // 1_000_000,
+            "source_position_ms": source_position_ms,
             "width": width,
             "height": height,
             "infer_ms": infer_ms,

@@ -22,6 +22,7 @@ os.environ.setdefault("MINIO_ROOT_PASSWORD", "visionops_minio_secret")
 os.environ.setdefault("MINIO_BUCKET", "visionops-media-test")
 os.environ.setdefault("CELERY_BROKER_URL", "redis://localhost:6379/0")
 os.environ.setdefault("CELERY_RESULT_BACKEND", "redis://localhost:6379/1")
+os.environ.setdefault("VISIONOPS_API_KEY", "")
 
 
 @pytest.fixture(scope="session")
@@ -92,6 +93,9 @@ def test_ingest_detections(client):
         json={
             "camera_name": "ci-cam-phase5",
             "frame_index": 7,
+            "captured_at_ms": 1_722_000_000_000,
+            "sent_at_ms": 1_722_000_000_010,
+            "source_position_ms": 280.0,
             "width": 640,
             "height": 480,
             "infer_ms": 12.3,
@@ -111,10 +115,16 @@ def test_ingest_detections(client):
     )
     assert r.status_code == 200
     assert r.json()["ok"] is True
+    assert r.json()["camera_id"]
+    assert r.json()["received_at_ms"] >= 1_722_000_000_000
 
     latest = client.get("/api/v1/detections/latest")
     assert latest.status_code == 200
     assert latest.json()["frame_index"] == 7
+    assert latest.json()["camera_name"] == "ci-cam-phase5"
+    assert latest.json()["camera_id"] == r.json()["camera_id"]
+    assert latest.json()["captured_at_ms"] == 1_722_000_000_000
+    assert latest.json()["source_position_ms"] == 280.0
     assert len(latest.json()["boxes"]) == 1
 
 

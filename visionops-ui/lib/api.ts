@@ -67,8 +67,13 @@ export type DetectionBox = {
 };
 
 export type DetectionFrame = {
+  camera_id: string | null;
   camera_name: string;
   frame_index: number;
+  captured_at_ms: number;
+  sent_at_ms?: number | null;
+  received_at_ms?: number | null;
+  source_position_ms?: number | null;
   width: number;
   height: number;
   infer_ms?: number | null;

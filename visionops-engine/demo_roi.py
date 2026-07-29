@@ -272,6 +272,8 @@ def run(args: argparse.Namespace) -> int:
             ok, frame = capture.read()
             if not ok:
                 break
+            captured_at_ms = time.time_ns() // 1_000_000
+            source_position_ms = max(0.0, float(capture.get(cv2.CAP_PROP_POS_MSEC)))
 
             if alert_client is not None and sync_roi:
                 now = time.monotonic()
@@ -319,8 +321,10 @@ def run(args: argparse.Namespace) -> int:
                     width=width,
                     height=height,
                     frame_index=frame_idx,
+                    captured_at_ms=captured_at_ms,
                     boxes=boxes_payload,
                     infer_ms=infer_ms,
+                    source_position_ms=source_position_ms,
                     zone_alerts=[a.message for a in alerts],
                     camera_name=args.camera_name,
                 )

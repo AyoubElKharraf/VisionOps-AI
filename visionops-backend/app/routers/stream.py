@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from time import time_ns
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
@@ -57,8 +58,12 @@ class DetectionBox(BaseModel):
 
 
 class DetectionFrame(BaseModel):
+    camera_id: uuid.UUID | None = None
     camera_name: str = "demo-camera"
     frame_index: int = 0
+    captured_at_ms: int = Field(..., ge=0)
+    sent_at_ms: int | None = Field(default=None, ge=0)
+    source_position_ms: float | None = Field(default=None, ge=0)
     width: int
     height: int
     infer_ms: float | None = None
@@ -119,12 +124,49 @@ def delete_zone(zone_id: uuid.UUID, db: Session = Depends(get_db)) -> None:
     db.commit()
 
 
+_detection_camera_ids: dict[str, uuid.UUID] = {}
+
+
+def _detection_camera_id(payload: DetectionFrame, db: Session) -> uuid.UUID:
+    if payload.camera_id:
+        if not db.get(Camera, payload.camera_id):
+            raise HTTPException(404, "camera_id not found")
+        _detection_camera_ids[payload.camera_name] = payload.camera_id
+        return payload.camera_id
+    cached = _detection_camera_ids.get(payload.camera_name)
+    if cached:
+        return cached
+
+    camera = db.query(Camera).filter(Camera.name == payload.camera_name).first()
+    if camera is None:
+        camera = Camera(
+            name=payload.camera_name,
+            source_url="stream://engine",
+            location="engine",
+        )
+        db.add(camera)
+        db.commit()
+        db.refresh(camera)
+    _detection_camera_ids[payload.camera_name] = camera.id
+    return camera.id
+
+
 @router.post("/detections")
-async def ingest_detections(payload: DetectionFrame) -> dict[str, Any]:
+async def ingest_detections(
+    payload: DetectionFrame,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
     """Engine pushes frame detections; fan-out to dashboard WebSocket clients."""
     data = payload.model_dump()
+    data["camera_id"] = str(_detection_camera_id(payload, db))
+    data["received_at_ms"] = time_ns() // 1_000_000
     sent = await detection_hub.broadcast(data)
-    return {"ok": True, "clients": sent}
+    return {
+        "ok": True,
+        "clients": sent,
+        "camera_id": data["camera_id"],
+        "received_at_ms": data["received_at_ms"],
+    }
 
 
 @router.get("/detections/latest")

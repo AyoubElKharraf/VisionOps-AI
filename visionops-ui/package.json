@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test:whep": "node --test app/api/mediamtx/whep/targets.test.mjs"
+    "test:whep": "node --test app/api/mediamtx/whep/targets.test.mjs",
+    "test:geometry": "node --test lib/videoGeometry.test.mjs",
+    "test:unit": "node --test app/api/mediamtx/whep/targets.test.mjs lib/videoGeometry.test.mjs"
   },
   "dependencies": {
     "clsx": "^2.1.1",
