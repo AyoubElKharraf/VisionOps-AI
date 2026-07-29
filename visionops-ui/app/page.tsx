@@ -45,8 +45,14 @@ export default function OverviewPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[
+          {
+            href: "/cameras",
+            title: "Cameras",
+            desc: "Register sources and MediaMTX stream paths",
+            icon: Radio,
+          },
           {
             href: "/monitor",
             title: "Live Monitor",

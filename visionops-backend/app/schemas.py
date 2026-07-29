@@ -18,6 +18,13 @@ class CameraCreate(BaseModel):
     is_active: bool = True
 
 
+class CameraUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    source_url: str | None = Field(default=None, min_length=1, max_length=512)
+    location: str | None = None
+    is_active: bool | None = None
+
+
 class CameraRead(BaseModel):
     id: uuid.UUID
     name: str
@@ -49,6 +56,7 @@ class AlertCreate(BaseModel):
 class AlertRead(BaseModel):
     id: uuid.UUID
     camera_id: uuid.UUID | None
+    camera_name: str | None = None
     alert_type: AlertType
     status: AlertStatus
     zone_name: str | None

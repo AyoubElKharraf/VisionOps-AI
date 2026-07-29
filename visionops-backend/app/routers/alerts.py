@@ -43,6 +43,7 @@ def _resolve_camera(db: Session, payload: AlertCreate) -> uuid.UUID | None:
 
 def _to_read(alert: Alert) -> AlertRead:
     data = AlertRead.model_validate(alert)
+    data.camera_name = alert.camera.name if alert.camera else None
     data.snapshot_url = presigned_get_url(alert.snapshot_object_key) if alert.snapshot_object_key else None
     data.clip_url = presigned_get_url(alert.clip_object_key) if alert.clip_object_key else None
     return data
@@ -80,11 +81,20 @@ def create_alert(payload: AlertCreate, db: Session = Depends(get_db)) -> AlertRe
 def list_alerts(
     limit: int = Query(50, ge=1, le=200),
     status: AlertStatus | None = None,
+    camera_id: uuid.UUID | None = None,
+    camera_name: str | None = None,
     db: Session = Depends(get_db),
 ) -> list[AlertRead]:
     q = db.query(Alert).order_by(Alert.created_at.desc())
     if status is not None:
         q = q.filter(Alert.status == status)
+    if camera_id is not None:
+        q = q.filter(Alert.camera_id == camera_id)
+    elif camera_name:
+        cam = db.query(Camera).filter(Camera.name == camera_name).first()
+        if cam is None:
+            return []
+        q = q.filter(Alert.camera_id == cam.id)
     return [_to_read(a) for a in q.limit(limit).all()]
 
 

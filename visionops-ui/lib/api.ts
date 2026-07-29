@@ -1,3 +1,9 @@
+import {
+  hlsUrlForCamera as buildHlsUrl,
+  streamPathForCamera as buildStreamPath,
+  whepUrlForCamera as buildWhepUrl,
+} from "./cameraPaths.mjs";
+
 export const API_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8001";
 
@@ -27,9 +33,35 @@ export function detectionsWsUrl(base = WS_URL, apiKey = API_KEY): string {
   }
 }
 
+/** Derive MediaMTX path from RTSP/HLS URL or fall back to sanitized camera name. */
+export function streamPathForCamera(camera: {
+  name: string;
+  source_url: string;
+}): string {
+  return buildStreamPath(camera);
+}
+
+export function whepUrlForCamera(camera: { name: string; source_url: string }): string {
+  return buildWhepUrl(camera);
+}
+
+export function hlsUrlForCamera(camera: { name: string; source_url: string }): string {
+  return buildHlsUrl(camera, HLS_URL);
+}
+
+export type Camera = {
+  id: string;
+  name: string;
+  source_url: string;
+  location: string | null;
+  is_active: boolean;
+  created_at: string;
+};
+
 export type Alert = {
   id: string;
   camera_id: string | null;
+  camera_name?: string | null;
   alert_type: string;
   status: string;
   zone_name: string | null;
@@ -81,6 +113,13 @@ export type DetectionFrame = {
   zone_alerts: string[];
 };
 
+export type CameraInput = {
+  name: string;
+  source_url: string;
+  location?: string | null;
+  is_active?: boolean;
+};
+
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -105,7 +144,25 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const visionopsApi = {
   health: () => api<{ status: string; phase?: string }>("/health"),
-  listAlerts: (limit = 40) => api<Alert[]>(`/api/v1/alerts?limit=${limit}`),
+  listCameras: (activeOnly = false) =>
+    api<Camera[]>(`/api/v1/cameras${activeOnly ? "?active_only=true" : ""}`),
+  createCamera: (body: CameraInput) =>
+    api<Camera>("/api/v1/cameras", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  updateCamera: (id: string, body: Partial<CameraInput>) =>
+    api<Camera>(`/api/v1/cameras/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  deleteCamera: (id: string) =>
+    api<void>(`/api/v1/cameras/${id}`, { method: "DELETE" }),
+  listAlerts: (limit = 40, cameraName?: string) => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (cameraName) params.set("camera_name", cameraName);
+    return api<Alert[]>(`/api/v1/alerts?${params.toString()}`);
+  },
   listZones: (cameraName = "demo-camera") =>
     api<RoiZone[]>(`/api/v1/roi-zones?camera_name=${encodeURIComponent(cameraName)}`),
   createZone: (body: {
@@ -117,10 +174,10 @@ export const visionopsApi = {
     api<RoiZone>("/api/v1/roi-zones", {
       method: "POST",
       body: JSON.stringify({
-        camera_name: "demo-camera",
         max_allowed_objects: 0,
         forbidden_classes: ["person"],
         ...body,
+        camera_name: body.camera_name ?? "demo-camera",
       }),
     }),
   deleteZone: (id: string) =>

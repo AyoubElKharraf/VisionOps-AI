@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import type { Alert } from "@/lib/api";
 import { visionopsApi } from "@/lib/api";
 
-export function AlertGallery() {
+export function AlertGallery({ cameraName }: { cameraName?: string }) {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -12,7 +12,7 @@ export function AlertGallery() {
   const load = async () => {
     try {
       setLoading(true);
-      setAlerts(await visionopsApi.listAlerts(48));
+      setAlerts(await visionopsApi.listAlerts(48, cameraName));
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load alerts");
@@ -25,7 +25,7 @@ export function AlertGallery() {
     void load();
     const id = window.setInterval(() => void load(), 8000);
     return () => clearInterval(id);
-  }, []);
+  }, [cameraName]);
 
   if (loading && alerts.length === 0) {
     return <p className="text-sm text-muted">Loading alerts…</p>;
@@ -45,8 +45,8 @@ export function AlertGallery() {
   if (alerts.length === 0) {
     return (
       <p className="text-sm text-muted">
-        No alerts yet. Run the engine with{" "}
-        <code className="text-accent">--post-alerts</code>.
+        No alerts for <code className="text-accent">{cameraName ?? "this camera"}</code>
+        . Run the engine with <code className="text-accent">--post-alerts --camera-name …</code>.
       </p>
     );
   }
@@ -82,6 +82,7 @@ export function AlertGallery() {
             <p className="text-sm leading-snug">{alert.message}</p>
             <p className="text-xs text-muted">
               {new Date(alert.created_at).toLocaleString()}
+              {alert.camera_name ? ` · ${alert.camera_name}` : ""}
               {alert.zone_name ? ` · ${alert.zone_name}` : ""}
             </p>
             <div className="flex gap-3 text-xs">

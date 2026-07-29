@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, Bell, Camera, Hexagon, LayoutDashboard } from "lucide-react";
+import { Activity, Bell, Camera, Hexagon, LayoutDashboard, Video } from "lucide-react";
 import clsx from "clsx";
 
 const links = [
   { href: "/", label: "Overview", icon: LayoutDashboard },
+  { href: "/cameras", label: "Cameras", icon: Video },
   { href: "/monitor", label: "Live Monitor", icon: Camera },
   { href: "/roi", label: "ROI Editor", icon: Hexagon },
   { href: "/alerts", label: "Alert Gallery", icon: Bell },

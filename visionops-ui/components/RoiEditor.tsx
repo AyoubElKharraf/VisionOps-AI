@@ -8,8 +8,10 @@ type Point = [number, number];
 
 export function RoiEditor({
   imageUrl = "/demo-poster.svg",
+  cameraName = "demo-camera",
 }: {
   imageUrl?: string;
+  cameraName?: string;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [points, setPoints] = useState<Point[]>([]);
@@ -20,15 +22,16 @@ export function RoiEditor({
 
   const reload = async () => {
     try {
-      setZones(await visionopsApi.listZones());
+      setZones(await visionopsApi.listZones(cameraName));
     } catch (e) {
       setStatus(e instanceof Error ? e.message : "Failed to load zones");
     }
   };
 
   useEffect(() => {
+    setPoints([]);
     void reload();
-  }, []);
+  }, [cameraName]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -88,7 +91,7 @@ export function RoiEditor({
         name,
         points: normalized,
         color: "#ef4444",
-        camera_name: "demo-camera",
+        camera_name: cameraName,
       });
       setPoints([]);
       setStatus("Zone saved");
@@ -107,7 +110,8 @@ export function RoiEditor({
     <div className="grid gap-6 lg:grid-cols-[1fr_280px]">
       <div>
         <p className="mb-3 text-sm text-muted">
-          Click on the image to place polygon vertices. Save when done (≥ 3 points).
+          Camera <code className="text-accent">{cameraName}</code> — click the
+          image to place polygon vertices. Save when done (≥ 3 points).
         </p>
         <canvas
           ref={canvasRef}
