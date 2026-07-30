@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, joinedload
 
-from app.auth import require_api_key
+from app.auth import require_auth, require_roles
 from app.database import get_db
 from app.minio_client import ensure_bucket, presigned_get_url
 from app.models import (
@@ -18,6 +18,7 @@ from app.models import (
     AlertStatus,
     Camera,
     IncidentStatus,
+    UserRole,
 )
 from app.schemas import (
     AlertActorNote,
@@ -32,7 +33,7 @@ from app.tasks import process_alert_media
 router = APIRouter(
     prefix="/alerts",
     tags=["alerts"],
-    dependencies=[Depends(require_api_key)],
+    dependencies=[Depends(require_auth)],
 )
 
 
@@ -168,7 +169,11 @@ def get_alert(alert_id: uuid.UUID, db: Session = Depends(get_db)) -> AlertRead:
 
 
 @router.delete("/{alert_id}", status_code=204)
-def delete_alert(alert_id: uuid.UUID, db: Session = Depends(get_db)) -> None:
+def delete_alert(
+    alert_id: uuid.UUID,
+    _: object = Depends(require_roles(UserRole.admin)),
+    db: Session = Depends(get_db),
+) -> None:
     """Delete incident metadata and its event timeline.
 
     Primarily useful for retention jobs and isolated end-to-end test cleanup.

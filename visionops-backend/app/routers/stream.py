@@ -10,14 +10,14 @@ from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisco
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.auth import accept_websocket_api_key, require_api_key
+from app.auth import accept_websocket_api_key, require_auth
 from app.database import get_db
 from app.models import Camera, RoiZone
 from app.ws_hub import detection_hub
 
 router = APIRouter(
     tags=["stream", "roi"],
-    dependencies=[Depends(require_api_key)],
+    dependencies=[Depends(require_auth)],
 )
 ws_router = APIRouter(tags=["stream"])
 

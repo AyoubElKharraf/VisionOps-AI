@@ -47,6 +47,32 @@ class AlertEventType(str, enum.Enum):
     reprocessed = "reprocessed"
 
 
+class UserRole(str, enum.Enum):
+    admin = "admin"
+    operator = "operator"
+
+
+class User(Base):
+    """Human dashboard user authenticated via JWT."""
+
+    __tablename__ = "users"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    username: Mapped[str] = mapped_column(String(80), unique=True, nullable=False, index=True)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    full_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    role: Mapped[UserRole] = mapped_column(
+        Enum(UserRole, name="user_role"),
+        default=UserRole.operator,
+        nullable=False,
+    )
+    is_active: Mapped[bool] = mapped_column(default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class Camera(Base):
     __tablename__ = "cameras"
 

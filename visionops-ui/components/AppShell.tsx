@@ -1,9 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { Activity, Bell, Camera, Hexagon, LayoutDashboard, Video } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import {
+  Activity,
+  Bell,
+  Camera,
+  Hexagon,
+  LayoutDashboard,
+  LogOut,
+  Video,
+} from "lucide-react";
 import clsx from "clsx";
+import { useAuth } from "@/lib/auth";
 
 const links = [
   { href: "/", label: "Overview", icon: LayoutDashboard },
@@ -15,6 +24,17 @@ const links = [
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const { user, logout, ready } = useAuth();
+
+  if (pathname === "/login") {
+    return <>{children}</>;
+  }
+
+  const signOut = () => {
+    logout();
+    router.replace("/login");
+  };
 
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[240px_1fr]">
@@ -48,6 +68,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             );
           })}
         </nav>
+        {ready && user && (
+          <div className="mt-6 space-y-2 border-t border-white/10 px-2 pt-4">
+            <p className="truncate text-xs text-muted">
+              {user.full_name || user.username}
+              <span className="ml-1 text-accent">({user.role})</span>
+            </p>
+            <button
+              type="button"
+              onClick={signOut}
+              className="flex min-h-11 w-full items-center gap-2 rounded-md px-2 text-sm text-muted hover:bg-white/5 hover:text-white"
+            >
+              <LogOut className="h-4 w-4" />
+              Sign out
+            </button>
+          </div>
+        )}
       </aside>
       <div className="min-w-0">
         <header className="flex items-center justify-between border-b border-white/10 px-6 py-4">
@@ -55,7 +91,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             Real-time CV · ONNX · ROI · Alerts
           </p>
           <span className="rounded-md border border-accent/30 bg-accent/10 px-2.5 py-1 text-xs text-accent">
-            Phase 4
+            Phase 5
           </span>
         </header>
         <main className="px-6 py-6">{children}</main>

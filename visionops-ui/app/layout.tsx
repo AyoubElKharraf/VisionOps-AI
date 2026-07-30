@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { AppShell } from "@/components/AppShell";
+import { AuthGate } from "@/components/AuthGate";
+import { AuthProvider } from "@/lib/auth";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -15,7 +18,19 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <AppShell>{children}</AppShell>
+        <AuthProvider>
+          <Suspense
+            fallback={
+              <div className="flex min-h-screen items-center justify-center bg-ink text-sm text-muted">
+                Loading…
+              </div>
+            }
+          >
+            <AuthGate>
+              <AppShell>{children}</AppShell>
+            </AuthGate>
+          </Suspense>
+        </AuthProvider>
       </body>
     </html>
   );

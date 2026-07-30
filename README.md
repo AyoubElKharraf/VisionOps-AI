@@ -193,6 +193,9 @@ Copy `.env.example` to `.env`, then review at least:
 
 ```dotenv
 VISIONOPS_API_KEY=visionops-dev-key
+VISIONOPS_JWT_SECRET=visionops-dev-jwt-secret-change-me
+VISIONOPS_ADMIN_USERNAME=admin
+VISIONOPS_ADMIN_PASSWORD=visionops-admin
 VIDEO_SOURCE=
 CAMERA_NAME=demo-camera
 YOLO_CONF=0.25
@@ -204,9 +207,18 @@ The included values are for **local development only**. Use strong, externally m
 
 ### Authentication
 
-- REST API: `X-API-Key: <VISIONOPS_API_KEY>`
-- Detection WebSocket: `?api_key=<VISIONOPS_API_KEY>`
-- `/health` remains public for container orchestration.
+VisionOps supports dual authentication:
+
+| Actor | Mechanism | Notes |
+| --- | --- | --- |
+| Engine / workers | `X-API-Key` or `?api_key=` | Service principal with admin-equivalent access |
+| Humans (UI) | `Authorization: Bearer <JWT>` | Login at `/login`; roles `admin` / `operator` |
+| Detection WebSocket | `?token=<JWT>` or `?api_key=` | Browsers cannot set custom headers |
+
+- `/health` and `GET /api/v1/auth/status` remain public.
+- **admin**: camera CRUD, user creation, alert delete, full incident workflow.
+- **operator**: read cameras/monitor/ROI, run incident workflow; no camera CRUD.
+- On first boot with `VISIONOPS_JWT_SECRET` set and an empty `users` table, the backend creates the bootstrap admin (`admin` / `visionops-admin` by default).
 
 ### Database migrations
 
@@ -225,6 +237,7 @@ alembic revision --autogenerate -m "describe schema change"
 
 | Area | Main endpoints |
 | --- | --- |
+| Auth | `POST /api/v1/auth/login`, `GET /me`, `GET/POST /users`, `GET /status` |
 | Cameras | `GET/POST /api/v1/cameras`, `PATCH/DELETE /api/v1/cameras/{id}` |
 | ROI zones | `GET/POST /api/v1/roi-zones`, `DELETE /api/v1/roi-zones/{id}` |
 | Detections | `POST /api/v1/detections`, `GET /api/v1/detections/latest` |

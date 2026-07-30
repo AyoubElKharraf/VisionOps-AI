@@ -7,6 +7,7 @@ import {
 export const API_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8001";
 
+/** Optional service-key fallback (engine/dev). Prefer JWT from localStorage in the UI. */
 export const API_KEY = process.env.NEXT_PUBLIC_API_KEY ?? "";
 
 export const WS_URL =
@@ -20,16 +21,27 @@ export const HLS_URL =
 export const WHEP_URL =
   process.env.NEXT_PUBLIC_WHEP_URL ?? "/api/mediamtx/whep?path=cam1";
 
-/** WebSocket URL with optional API key query (browsers cannot set X-API-Key). */
-export function detectionsWsUrl(base = WS_URL, apiKey = API_KEY): string {
-  if (!apiKey) return base;
+function clientAccessToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem("visionops.accessToken");
+}
+
+/** WebSocket URL with JWT `token` or API key query (browsers cannot set headers). */
+export function detectionsWsUrl(base = WS_URL): string {
+  const token = clientAccessToken();
+  const credential = token
+    ? { key: "token", value: token }
+    : API_KEY
+      ? { key: "api_key", value: API_KEY }
+      : null;
+  if (!credential) return base;
   try {
     const url = new URL(base);
-    url.searchParams.set("api_key", apiKey);
+    url.searchParams.set(credential.key, credential.value);
     return url.toString();
   } catch {
     const join = base.includes("?") ? "&" : "?";
-    return `${base}${join}api_key=${encodeURIComponent(apiKey)}`;
+    return `${base}${join}${credential.key}=${encodeURIComponent(credential.value)}`;
   }
 }
 
@@ -144,7 +156,10 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
     "Content-Type": "application/json",
     ...(init?.headers as Record<string, string> | undefined),
   };
-  if (API_KEY) {
+  const token = clientAccessToken();
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  } else if (API_KEY) {
     headers["X-API-Key"] = API_KEY;
   }
 

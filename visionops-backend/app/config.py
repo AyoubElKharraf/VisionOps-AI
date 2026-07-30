@@ -16,6 +16,13 @@ class Settings(BaseSettings):
     api_prefix: str = "/api/v1"
     # Empty = auth disabled (local/CI). Set VISIONOPS_API_KEY to enforce X-API-Key.
     visionops_api_key: str = ""
+    # Human JWT sessions (dashboard). Leave empty to disable JWT login.
+    visionops_jwt_secret: str = ""
+    visionops_jwt_expire_minutes: int = 480
+    # Bootstrap admin created on startup when JWT is enabled and no users exist.
+    visionops_admin_username: str = "admin"
+    visionops_admin_password: str = "visionops-admin"
+    visionops_admin_full_name: str = "VisionOps Admin"
     database_url: str = "postgresql://visionops:visionops_secret@localhost:5434/visionops_db"
 
     celery_broker_url: str = "redis://localhost:6380/0"

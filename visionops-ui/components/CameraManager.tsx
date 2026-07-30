@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { Camera, CameraInput } from "@/lib/api";
 import { streamPathForCamera, visionopsApi } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
 const emptyForm: CameraInput = {
   name: "",
@@ -12,6 +13,7 @@ const emptyForm: CameraInput = {
 };
 
 export function CameraManager() {
+  const { isAdmin } = useAuth();
   const [cameras, setCameras] = useState<Camera[]>([]);
   const [form, setForm] = useState<CameraInput>(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -131,28 +133,31 @@ export function CameraManager() {
                     </span>
                   </p>
                 </div>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => startEdit(cam)}
-                    className="min-h-11 rounded-md border border-white/15 px-3 text-sm hover:bg-white/5"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void remove(cam.id)}
-                    className="min-h-11 rounded-md border border-red-400/30 px-3 text-sm text-red-200 hover:bg-red-500/10"
-                  >
-                    Delete
-                  </button>
-                </div>
+                {isAdmin && (
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => startEdit(cam)}
+                      className="min-h-11 rounded-md border border-white/15 px-3 text-sm hover:bg-white/5"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void remove(cam.id)}
+                      className="min-h-11 rounded-md border border-red-400/30 px-3 text-sm text-red-200 hover:bg-red-500/10"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                )}
               </div>
             </article>
           ))}
         </div>
       </div>
 
+      {isAdmin ? (
       <div className="space-y-4 rounded-lg border border-white/10 bg-panel/50 p-4">
         <h2 className="font-display text-lg font-semibold">
           {editingId ? "Edit camera" : "Add camera"}
@@ -213,6 +218,11 @@ export function CameraManager() {
         </div>
         {status && <p className="text-xs text-accent">{status}</p>}
       </div>
+      ) : (
+        <p className="rounded-lg border border-white/10 bg-panel/50 p-4 text-sm text-muted">
+          Operators can view cameras. Create, edit, and delete require an admin account.
+        </p>
+      )}
     </div>
   );
 }

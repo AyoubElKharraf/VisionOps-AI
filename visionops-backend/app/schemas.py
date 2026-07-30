@@ -8,7 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from app.models import AlertStatus, AlertType, IncidentStatus
+from app.models import AlertStatus, AlertType, IncidentStatus, UserRole
 
 
 class CameraCreate(BaseModel):
@@ -112,3 +112,41 @@ class AlertAssign(BaseModel):
 class AlertComment(BaseModel):
     message: str = Field(..., min_length=1, max_length=2000)
     actor: str | None = Field(default="operator", max_length=120)
+
+
+class LoginRequest(BaseModel):
+    username: str = Field(..., min_length=1, max_length=80)
+    password: str = Field(..., min_length=1, max_length=128)
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int
+    user: "UserRead"
+
+
+class UserCreate(BaseModel):
+    username: str = Field(..., min_length=3, max_length=80)
+    password: str = Field(..., min_length=8, max_length=128)
+    full_name: str | None = Field(default=None, max_length=160)
+    role: UserRole = UserRole.operator
+    is_active: bool = True
+
+
+class UserRead(BaseModel):
+    id: uuid.UUID
+    username: str
+    full_name: str | None
+    role: UserRole
+    is_active: bool
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class AuthStatus(BaseModel):
+    auth_enforced: bool
+    api_key_enabled: bool
+    jwt_enabled: bool
+

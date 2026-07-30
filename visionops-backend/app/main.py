@@ -1,4 +1,4 @@
-"""VisionOps AI — Core API (Phases 3–4)."""
+"""VisionOps AI — Core API (Phases 3–5 + JWT auth)."""
 
 from __future__ import annotations
 
@@ -7,10 +7,12 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.auth import auth_enforced
+from app.bootstrap import ensure_bootstrap_admin
 from app.config import get_settings
-from app.database import run_migrations
+from app.database import SessionLocal, run_migrations
 from app.minio_client import ensure_bucket
-from app.routers import alerts, cameras
+from app.routers import alerts, auth, cameras
 from app.routers import stream as stream_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
@@ -21,7 +23,7 @@ settings = get_settings()
 app = FastAPI(
     title=settings.app_name,
     description="Real-time computer vision platform API — cameras, alerts, ROI, live detections",
-    version="0.4.0",
+    version="0.5.0",
 )
 
 app.add_middleware(
@@ -32,6 +34,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth.router, prefix=settings.api_prefix)
 app.include_router(cameras.router, prefix=settings.api_prefix)
 app.include_router(alerts.router, prefix=settings.api_prefix)
 app.include_router(stream_router.router, prefix=settings.api_prefix)
@@ -41,12 +44,24 @@ app.include_router(stream_router.ws_router, prefix=settings.api_prefix)
 @app.on_event("startup")
 def on_startup() -> None:
     if settings.visionops_api_key:
-        logger.info("API key auth enabled for %s/*", settings.api_prefix)
-    else:
+        logger.info("Service API-key auth enabled for %s/*", settings.api_prefix)
+    if settings.visionops_jwt_secret:
+        logger.info("JWT user auth enabled for %s/*", settings.api_prefix)
+    if not auth_enforced():
         logger.warning(
-            "VISIONOPS_API_KEY is empty — /api/v1 is open. Set a key for local/demo security."
+            "Neither VISIONOPS_API_KEY nor VISIONOPS_JWT_SECRET is set — /api/v1 is open."
         )
+
     run_migrations()
+    try:
+        db = SessionLocal()
+        try:
+            ensure_bootstrap_admin(db, settings)
+        finally:
+            db.close()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not bootstrap admin user: %s", exc)
+
     try:
         bucket = ensure_bucket()
         logger.info("MinIO bucket ready: %s", bucket)
@@ -57,7 +72,7 @@ def on_startup() -> None:
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "service": "visionops-backend", "phase": "4"}
+    return {"status": "ok", "service": "visionops-backend", "phase": "5"}
 
 
 @app.get("/")
@@ -67,5 +82,6 @@ def root() -> dict[str, str]:
         "docs": "/docs",
         "health": "/health",
         "api": settings.api_prefix,
+        "auth_login": f"{settings.api_prefix}/auth/login",
         "ws_detections": f"{settings.api_prefix}/ws/detections",
     }

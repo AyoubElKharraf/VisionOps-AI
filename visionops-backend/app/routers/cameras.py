@@ -7,15 +7,15 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.auth import require_api_key
+from app.auth import require_auth, require_roles
 from app.database import get_db
-from app.models import Camera
+from app.models import Camera, UserRole
 from app.schemas import CameraCreate, CameraRead, CameraUpdate
 
 router = APIRouter(
     prefix="/cameras",
     tags=["cameras"],
-    dependencies=[Depends(require_api_key)],
+    dependencies=[Depends(require_auth)],
 )
 
 
@@ -31,7 +31,11 @@ def list_cameras(
 
 
 @router.post("", response_model=CameraRead, status_code=201)
-def create_camera(payload: CameraCreate, db: Session = Depends(get_db)) -> Camera:
+def create_camera(
+    payload: CameraCreate,
+    _: object = Depends(require_roles(UserRole.admin)),
+    db: Session = Depends(get_db),
+) -> Camera:
     existing = db.query(Camera).filter(Camera.name == payload.name).first()
     if existing:
         raise HTTPException(status_code=409, detail=f"Camera '{payload.name}' already exists")
@@ -59,6 +63,7 @@ def get_camera(camera_id: uuid.UUID, db: Session = Depends(get_db)) -> Camera:
 def update_camera(
     camera_id: uuid.UUID,
     payload: CameraUpdate,
+    _: object = Depends(require_roles(UserRole.admin)),
     db: Session = Depends(get_db),
 ) -> Camera:
     cam = db.get(Camera, camera_id)
@@ -80,7 +85,11 @@ def update_camera(
 
 
 @router.delete("/{camera_id}", status_code=204)
-def delete_camera(camera_id: uuid.UUID, db: Session = Depends(get_db)) -> None:
+def delete_camera(
+    camera_id: uuid.UUID,
+    _: object = Depends(require_roles(UserRole.admin)),
+    db: Session = Depends(get_db),
+) -> None:
     cam = db.get(Camera, camera_id)
     if not cam:
         raise HTTPException(status_code=404, detail="Camera not found")

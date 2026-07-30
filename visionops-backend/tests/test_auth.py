@@ -146,7 +146,7 @@ def test_health_stays_public(auth_client):
 def test_api_rejects_missing_key(auth_client):
     r = auth_client.get("/api/v1/cameras")
     assert r.status_code == 401
-    assert "API key" in r.json()["detail"]
+    assert "credentials" in r.json()["detail"].lower() or "api key" in r.json()["detail"].lower()
 
 
 def test_api_rejects_wrong_key(auth_client):
