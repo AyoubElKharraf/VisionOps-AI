@@ -181,7 +181,7 @@ def client(monkeypatch):
     from app.config import get_settings
 
     get_settings.cache_clear()
-    monkeypatch.setattr("app.main.init_db", lambda: None)
+    monkeypatch.setattr("app.main.run_migrations", lambda: None)
     monkeypatch.setattr("app.main.ensure_bucket", lambda: "test-bucket")
     monkeypatch.setattr("app.routers.alerts.ensure_bucket", lambda: "test-bucket")
     monkeypatch.setattr(

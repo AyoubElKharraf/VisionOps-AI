@@ -109,7 +109,7 @@ def auth_client(monkeypatch):
 
     get_settings.cache_clear()
 
-    monkeypatch.setattr("app.main.init_db", lambda: None)
+    monkeypatch.setattr("app.main.run_migrations", lambda: None)
     monkeypatch.setattr("app.main.ensure_bucket", lambda: "test-bucket")
 
     from app.main import app as fastapi_app

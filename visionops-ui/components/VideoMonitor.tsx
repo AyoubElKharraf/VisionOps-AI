@@ -5,9 +5,19 @@ import Hls from "hls.js";
 import type { DetectionFrame, RoiZone } from "@/lib/api";
 import { detectionsWsUrl } from "@/lib/api";
 import { objectContainRect, projectVideoPoint } from "@/lib/videoGeometry.mjs";
+import {
+  DEFAULT_VIDEO_LATENCY_MS,
+  extrapolateBox,
+  overlayLeadMs,
+  trackVelocities,
+} from "@/lib/overlaySync.mjs";
 import { startWhepPlayback, type WhepSession } from "@/lib/whep";
 
 export type VideoSourceMode = "webrtc" | "hls" | "demo";
+
+type TrackVelocity = { vx: number; vy: number };
+
+const LATENCY_STORAGE_KEY = "visionops:videoLatencyMs";
 
 type Props = {
   mode?: VideoSourceMode;
@@ -37,6 +47,20 @@ export function VideoMonitor({
   const [streamState, setStreamState] = useState<"idle" | "connecting" | "live" | "error">(
     "idle",
   );
+  const [videoLatencyMs, setVideoLatencyMs] = useState(DEFAULT_VIDEO_LATENCY_MS);
+  const [leadMs, setLeadMs] = useState(0);
+  const velocitiesRef = useRef<Map<number, TrackVelocity>>(new Map());
+  const previousFrameRef = useRef<DetectionFrame | null>(null);
+
+  useEffect(() => {
+    const stored = Number(window.localStorage.getItem(LATENCY_STORAGE_KEY));
+    if (Number.isFinite(stored) && stored >= 0) setVideoLatencyMs(stored);
+  }, []);
+
+  const changeVideoLatency = (value: number) => {
+    setVideoLatencyMs(value);
+    window.localStorage.setItem(LATENCY_STORAGE_KEY, String(value));
+  };
 
   useEffect(() => {
     const video = videoRef.current;
@@ -133,6 +157,8 @@ export function VideoMonitor({
             ageMs > -1000 &&
             ageMs < 10_000
           ) {
+            velocitiesRef.current = trackVelocities(previousFrameRef.current, next);
+            previousFrameRef.current = next;
             setFrame(next);
           }
         } catch {
@@ -194,7 +220,15 @@ export function VideoMonitor({
       }
 
       if (frame?.boxes?.length) {
-        for (const box of frame.boxes) {
+        const lead = overlayLeadMs(Date.now(), frame.captured_at_ms, videoLatencyMs);
+        setLeadMs(Math.round(lead));
+        for (const raw of frame.boxes) {
+          const box = extrapolateBox(
+            raw,
+            raw.track_id != null ? velocitiesRef.current.get(raw.track_id) : undefined,
+            lead,
+            { width: srcW, height: srcH },
+          );
           const topLeft = projectVideoPoint(box.x1, box.y1, videoRect);
           const bottomRight = projectVideoPoint(box.x2, box.y2, videoRect);
           const { x: x1, y: y1 } = topLeft;
@@ -219,10 +253,14 @@ export function VideoMonitor({
       }
     };
 
-    draw();
-    const id = window.setInterval(draw, 100);
-    return () => clearInterval(id);
-  }, [frame, zones]);
+    let animationFrame = 0;
+    const render = () => {
+      draw();
+      animationFrame = window.requestAnimationFrame(render);
+    };
+    animationFrame = window.requestAnimationFrame(render);
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [frame, zones, videoLatencyMs]);
 
   return (
     <div className={className}>
@@ -265,6 +303,25 @@ export function VideoMonitor({
           </span>
         )}
         {videoError && <span className="max-w-xl text-amber-300">{videoError}</span>}
+      </div>
+      <div className="mb-3 flex flex-wrap items-center gap-3 text-xs text-muted">
+        <label className="flex items-center gap-2">
+          <span>Video latency</span>
+          <input
+            type="range"
+            min={0}
+            max={600}
+            step={10}
+            value={videoLatencyMs}
+            onChange={(e) => changeVideoLatency(Number(e.target.value))}
+            className="h-1 w-40 accent-accent"
+          />
+          <span className="w-14 text-white">{videoLatencyMs} ms</span>
+        </label>
+        <span>
+          overlay lead {leadMs} ms — raise the slider if boxes run ahead, lower it if
+          they trail
+        </span>
       </div>
       <div
         ref={wrapRef}

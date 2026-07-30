@@ -20,7 +20,7 @@ Real-time computer vision & video surveillance platform — monorepo for **Compu
 
 ## Quick start — full stack (Docker)
 
-One command starts infra + API + Celery worker + vision engine + UI:
+One command starts infra + demo stream publisher + API + Celery worker + vision engine + UI:
 
 ```powershell
 cd VisionOps_AI
@@ -141,6 +141,26 @@ celery -A app.celery_app.celery_app worker --loglevel=info --pool=solo
 - `POST /api/v1/cameras` · `POST /api/v1/alerts` · `GET /api/v1/alerts` — require header `X-API-Key` when `VISIONOPS_API_KEY` is set
 - WebSocket detections: `?api_key=...` (browsers cannot send custom headers)
 
+### Database migrations (Alembic)
+
+Schema changes are versioned under `visionops-backend/alembic/versions/`.
+The API runs `alembic upgrade head` on startup.
+
+```powershell
+cd visionops-backend
+.\.venv\Scripts\Activate.ps1
+
+# Apply migrations manually
+alembic upgrade head
+
+# Create a new revision after editing models
+alembic revision --autogenerate -m "describe change"
+alembic upgrade head
+
+# Show current revision
+alembic current
+```
+
 ## UI — Phase 4 Control Center
 
 ```powershell
@@ -162,13 +182,22 @@ Pages:
 ### Real WebRTC via MediaMTX
 
 1. Start infra: `docker compose up -d` (exposes `8889` WHEP + `8189/udp` ICE)
-2. Publish demo loop (needs [ffmpeg](https://ffmpeg.org) in PATH):
+2. The `publisher` service loops `visionops-engine/data/demo.mp4` into MediaMTX path `cam1`, so no host ffmpeg is needed. Check it with:
 
 ```powershell
+docker compose ps publisher
+curl http://127.0.0.1:8888/cam1/index.m3u8
+```
+
+   To publish from the host instead (requires [ffmpeg](https://ffmpeg.org) in PATH), stop that service and run the script **from PowerShell** (not `cmd.exe`):
+
+```powershell
+docker compose stop publisher
 .\scripts\publish-demo-mediamtx.ps1
 ```
 
-3. Open [http://localhost:3000/monitor](http://localhost:3000/monitor) → source **WebRTC · MediaMTX WHEP**
+3. Open [http://localhost:3000/monitor](http://localhost:3000/monitor) → source **WebRTC · MediaMTX WHEP**  
+   The UI plays MediaMTX path `cam1` for engine placeholder cameras (`stream://` / `file://`). Keep the publish script running; without a publisher, WHEP/HLS return `no stream is available on path 'cam1'`.
 4. (Optional) stream detections for canvas overlay:
 
 ```bat
@@ -290,3 +319,9 @@ python ..\scripts\bench_phase5.py --frames 60
 - **Phase 3** — Alerts API + Celery clip upload to MinIO ✅
 - **Phase 4** — Dashboard + canvas overlay + ROI editor + alert gallery ✅
 - **Phase 5** — CI/CD + performance tests ✅
+
+
+MinIO login (depuis .env.example) :
+
+user : visionops_minio
+password : visionops_minio_secret

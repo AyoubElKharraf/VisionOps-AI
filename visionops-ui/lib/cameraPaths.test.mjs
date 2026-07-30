@@ -17,11 +17,28 @@ test("derives MediaMTX path from RTSP source URL", () => {
   );
 });
 
-test("falls back to sanitized camera name", () => {
+test("engine placeholders use demo MediaMTX path cam1", () => {
+  assert.equal(
+    streamPathForCamera({
+      name: "demo-camera",
+      source_url: "stream://engine",
+    }),
+    "cam1",
+  );
   assert.equal(
     streamPathForCamera({
       name: "Dock A / North",
       source_url: "file://demo",
+    }),
+    "cam1",
+  );
+});
+
+test("falls back to sanitized camera name when URL has no path", () => {
+  assert.equal(
+    streamPathForCamera({
+      name: "Dock A / North",
+      source_url: "not-a-url",
     }),
     "Dock-A-North",
   );

@@ -16,6 +16,46 @@ services:
       MTX_CONFLEVEL: info
     networks: [visionops]
 
+  # Loops the demo MP4 into MediaMTX path /cam1 so Live Monitor has a WebRTC/HLS
+  # publisher without installing ffmpeg on the host.
+  publisher:
+    image: linuxserver/ffmpeg:latest
+    container_name: visionops-publisher
+    restart: unless-stopped
+    depends_on:
+      mediamtx:
+        condition: service_started
+    volumes:
+      - ./visionops-engine/data:/data:ro
+    command:
+      - "-hide_banner"
+      - "-loglevel"
+      - "warning"
+      - "-re"
+      - "-stream_loop"
+      - "-1"
+      - "-i"
+      - "/data/${DEMO_VIDEO_FILE:-demo.mp4}"
+      - "-an"
+      - "-c:v"
+      - "libx264"
+      - "-preset"
+      - "ultrafast"
+      - "-tune"
+      - "zerolatency"
+      - "-pix_fmt"
+      - "yuv420p"
+      - "-g"
+      - "30"
+      - "-keyint_min"
+      - "30"
+      - "-f"
+      - "rtsp"
+      - "-rtsp_transport"
+      - "tcp"
+      - "rtsp://mediamtx:8554/${MEDIAMTX_DEMO_PATH:-cam1}"
+    networks: [visionops]
+
   postgres:
     image: postgres:16-alpine
     container_name: visionops-postgres
@@ -140,8 +180,12 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+      publisher:
+        condition: service_started
     environment:
-      VIDEO_SOURCE: ${VIDEO_SOURCE:-}
+      # Analyze the exact stream shown by WebRTC/HLS. Reading demo.mp4 in a
+      # separate loop makes detections drift ahead of/behind the displayed video.
+      VIDEO_SOURCE: ${VIDEO_SOURCE:-rtsp://mediamtx:8554/cam1}
       WEIGHTS_DIR: /models
       VISIONOPS_API_KEY: ${VISIONOPS_API_KEY:-visionops-dev-key}
       YOLO_CONF: ${YOLO_CONF:-0.25}
@@ -157,7 +201,7 @@ services:
         "--post-alerts",
         "--sync-roi",
         "--stream-every",
-        "2",
+        "${DETECTION_STREAM_EVERY:-1}",
         "--api-url",
         "http://backend:8001",
         "--api-key",

@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.database import init_db
+from app.database import run_migrations
 from app.minio_client import ensure_bucket
 from app.routers import alerts, cameras
 from app.routers import stream as stream_router
@@ -46,13 +46,13 @@ def on_startup() -> None:
         logger.warning(
             "VISIONOPS_API_KEY is empty — /api/v1 is open. Set a key for local/demo security."
         )
-    init_db()
+    run_migrations()
     try:
         bucket = ensure_bucket()
         logger.info("MinIO bucket ready: %s", bucket)
     except Exception as exc:  # noqa: BLE001
         logger.warning("MinIO not ready yet: %s", exc)
-    logger.info("Database tables ensured")
+    logger.info("Database migrations applied (Alembic head)")
 
 
 @app.get("/health")

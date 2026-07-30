@@ -116,9 +116,18 @@ def resolve_source(source: str) -> str:
     return str(ensure_demo_video())
 
 
+RTSP_LOW_LATENCY_OPTIONS = (
+    "rtsp_transport;tcp|fflags;nobuffer|flags;low_delay|reorder_queue_size;0|max_delay;0"
+)
+
+
 def open_capture(source: str) -> cv2.VideoCapture:
     if source.startswith("rtsp://") or source.startswith("rtsps://"):
+        # Read as close to live as possible: buffered frames would timestamp
+        # detections behind the picture the browser already shows.
+        os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", RTSP_LOW_LATENCY_OPTIONS)
         capture = cv2.VideoCapture(source, cv2.CAP_FFMPEG)
+        capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
     else:
         capture = cv2.VideoCapture(source)
 

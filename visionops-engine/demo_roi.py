@@ -122,7 +122,12 @@ def build_default_roi(width: int, height: int) -> ROIEngine:
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="VisionOps AI — Phase 2/3 ROI demo")
-    p.add_argument("--source", type=str, default="")
+    p.add_argument(
+        "--source",
+        type=str,
+        default=os.getenv("VIDEO_SOURCE", ""),
+        help="RTSP URL or video path (defaults to VIDEO_SOURCE)",
+    )
     p.add_argument("--max-frames", type=int, default=90)
     p.add_argument("--conf", type=float, default=0.25)
     p.add_argument("--device", type=str, default="cpu")

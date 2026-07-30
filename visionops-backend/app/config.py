@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     minio_root_password: str = "visionops_minio_secret"
     minio_bucket: str = "visionops-media"
     minio_secure: bool = False
+    minio_region: str = "us-east-1"
 
     # Default clip window around alert (seconds)
     alert_clip_pre_seconds: float = 2.0

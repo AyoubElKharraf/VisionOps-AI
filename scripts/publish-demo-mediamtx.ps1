@@ -36,10 +36,12 @@ if (-not $ffmpeg) {
   Write-Host @"
 ffmpeg not found in PATH.
 
-Install options:
+Easiest alternative — publish from Docker instead (no install needed):
+  docker compose up -d publisher
+
+Or install ffmpeg locally:
   1) winget install Gyan.FFmpeg
   2) Or download from https://ffmpeg.org and add to PATH
-
 Then re-run this script.
 "@ -ForegroundColor Red
   exit 1

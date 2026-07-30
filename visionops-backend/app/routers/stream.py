@@ -141,7 +141,8 @@ def _detection_camera_id(payload: DetectionFrame, db: Session) -> uuid.UUID:
     if camera is None:
         camera = Camera(
             name=payload.camera_name,
-            source_url="stream://engine",
+            # Matches scripts/publish-demo-mediamtx.ps1 default path /cam1
+            source_url="rtsp://127.0.0.1:8554/cam1",
             location="engine",
         )
         db.add(camera)
