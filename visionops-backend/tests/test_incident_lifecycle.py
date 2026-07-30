@@ -165,6 +165,11 @@ class FakeDb:
             obj.camera = self.store.cameras.get(obj.camera_id)
             self.store.alerts[obj.id] = obj
 
+    def delete(self, obj):
+        if obj.__class__.__name__ == "Alert" or hasattr(obj, "incident_status"):
+            self.store.alerts.pop(obj.id, None)
+            self.store.events = [event for event in self.store.events if event.alert_id != obj.id]
+
     def flush(self):
         return None
 
@@ -212,6 +217,16 @@ def client(monkeypatch):
 
 def _headers():
     return {"X-API-Key": "test-secret-key"}
+
+
+def test_delete_alert_removes_incident_and_timeline(client):
+    alert_id = next(iter(client.store.alerts))  # type: ignore[attr-defined]
+
+    deleted = client.delete(f"/api/v1/alerts/{alert_id}", headers=_headers())
+    assert deleted.status_code == 204, deleted.text
+
+    missing = client.get(f"/api/v1/alerts/{alert_id}", headers=_headers())
+    assert missing.status_code == 404
 
 
 def test_acknowledge_assign_resolve_and_history(client):

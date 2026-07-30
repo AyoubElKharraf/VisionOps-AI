@@ -23,6 +23,7 @@ from main import (
     resolve_source,
 )
 from alert_client import AlertClient
+from byte_tracker import ByteTrackAdapter
 from onnx_engine import COCO_NAMES, ONNXInferenceEngine
 from roi_manager import (
     CrossingDirection,
@@ -181,6 +182,16 @@ def parse_args() -> argparse.Namespace:
         help="Interval between backend ROI refreshes",
     )
     p.add_argument("--alert-cooldown", type=int, default=45, help="Min frames between identical API alerts")
+    p.add_argument(
+        "--tracker",
+        choices=("bytetrack", "centroid"),
+        default="bytetrack",
+        help="Object tracker (ByteTrack is robust to short occlusions)",
+    )
+    p.add_argument("--track-high-thresh", type=float, default=0.25)
+    p.add_argument("--track-low-thresh", type=float, default=0.1)
+    p.add_argument("--track-buffer", type=int, default=30)
+    p.add_argument("--track-match-thresh", type=float, default=0.8)
     return p.parse_args()
 
 
@@ -224,7 +235,8 @@ def run(args: argparse.Namespace) -> int:
         DEFAULT_ONNX,
         imgsz=DEFAULT_IMGSZ,
     )
-    onnx_engine = ONNXInferenceEngine(onnx_path, conf_thres=args.conf)
+    detector_conf = min(args.conf, args.track_low_thresh) if args.tracker == "bytetrack" else args.conf
+    onnx_engine = ONNXInferenceEngine(onnx_path, conf_thres=detector_conf)
 
     # Only load heavy PyTorch weights when benchmarking (was slowing every run)
     if not args.skip_benchmark:
@@ -246,6 +258,17 @@ def run(args: argparse.Namespace) -> int:
     # Writing MP4 every frame is costly — off by default now
     writer = create_writer(args.output, src_fps, (width, height)) if args.output else None
     roi = build_default_roi(width, height)
+    tracker = (
+        ByteTrackAdapter(
+            track_high_thresh=args.track_high_thresh,
+            track_low_thresh=args.track_low_thresh,
+            new_track_thresh=args.track_high_thresh,
+            track_buffer=args.track_buffer,
+            match_thresh=args.track_match_thresh,
+        )
+        if args.tracker == "bytetrack"
+        else None
+    )
 
     fps_window: deque[float] = deque(maxlen=30)
     frame_idx = 0
@@ -263,8 +286,9 @@ def run(args: argparse.Namespace) -> int:
     next_roi_refresh_at = 0.0
 
     logger.info(
-        "Running ROI demo | source=%s | max_frames=%d | post_alerts=%s | stream=%s (every %d) | write_mp4=%s",
+        "Running ROI demo | source=%s | tracker=%s | max_frames=%d | post_alerts=%s | stream=%s (every %d) | write_mp4=%s",
         source,
+        args.tracker,
         args.max_frames,
         args.post_alerts,
         args.stream_detections,
@@ -298,7 +322,11 @@ def run(args: argparse.Namespace) -> int:
             dets_arr, infer_ms = onnx_engine.predict(frame)
             fps_window.append(1000.0 / infer_ms if infer_ms > 0 else 0.0)
             detections = detections_from_array(dets_arr, COCO_NAMES)
-            detections = roi.assign_tracks(detections)
+            if tracker is not None:
+                detections = tracker.update(detections)
+                roi.record_tracks(detections)
+            else:
+                detections = roi.assign_tracks(detections)
 
             alerts = roi.check_zone_intrusion(detections)
             crossings = roi.check_line_crossings(detections)

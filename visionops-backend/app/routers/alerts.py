@@ -167,6 +167,18 @@ def get_alert(alert_id: uuid.UUID, db: Session = Depends(get_db)) -> AlertRead:
     return _to_read(alert, include_events=True)
 
 
+@router.delete("/{alert_id}", status_code=204)
+def delete_alert(alert_id: uuid.UUID, db: Session = Depends(get_db)) -> None:
+    """Delete incident metadata and its event timeline.
+
+    Primarily useful for retention jobs and isolated end-to-end test cleanup.
+    Stored media is managed independently by the object-retention policy.
+    """
+    alert = _get_alert(db, alert_id)
+    db.delete(alert)
+    db.commit()
+
+
 @router.get("/{alert_id}/events", response_model=list[AlertEventRead])
 def list_alert_events(alert_id: uuid.UUID, db: Session = Depends(get_db)) -> list[AlertEventRead]:
     alert = _get_alert(db, alert_id, with_events=True)

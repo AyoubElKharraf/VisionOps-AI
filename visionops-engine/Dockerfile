@@ -13,9 +13,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Force CPU wheels before Ultralytics dependency resolution. Otherwise recent
+# PyTorch releases pull several gigabytes of CUDA libraries into this CPU image.
+RUN pip install --no-cache-dir \
+    --index-url https://download.pytorch.org/whl/cpu \
+    torch torchvision \
+    && pip install --no-cache-dir -r requirements.txt
 
-COPY main.py demo_roi.py alert_client.py onnx_engine.py export_onnx.py roi_manager.py ./
+COPY main.py demo_roi.py alert_client.py byte_tracker.py onnx_engine.py export_onnx.py roi_manager.py ./
 COPY docker-entrypoint.sh /docker-entrypoint.sh
 RUN sed -i 's/\r$//' /docker-entrypoint.sh && chmod +x /docker-entrypoint.sh && mkdir -p /app/data
 

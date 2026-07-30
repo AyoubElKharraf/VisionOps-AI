@@ -165,6 +165,17 @@ class ROIEngine:
         self._prev_centers = assigned
         return detections
 
+    def record_tracks(self, detections: Iterable[Detection]) -> None:
+        """Record trajectories for detections already identified by a tracker."""
+        active: dict[int, tuple[float, float]] = {}
+        for det in detections:
+            if det.track_id is None:
+                continue
+            center = det.center
+            active[det.track_id] = center
+            self._trajectories[det.track_id].append(center)
+        self._prev_centers = active
+
     def check_zone_intrusion(
         self,
         detections: Iterable[Detection],

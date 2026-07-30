@@ -32,10 +32,11 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
-          pip install numpy opencv-python-headless shapely pydantic onnxruntime
+          pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision
+          pip install numpy opencv-python-headless shapely pydantic onnxruntime ultralytics lap
 
       - name: Ruff lint
-        run: ruff check roi_manager.py onnx_engine.py export_onnx.py alert_client.py tests
+        run: ruff check main.py demo_roi.py byte_tracker.py roi_manager.py onnx_engine.py export_onnx.py alert_client.py tests
 
       - name: Pytest
         run: pytest -q tests
@@ -105,8 +106,61 @@ jobs:
           cache: npm
           cache-dependency-path: visionops-ui/package-lock.json
       - run: npm ci
+      - run: npm run test:unit
       - run: npx tsc --noEmit
       - run: npm run build
         env:
           NEXT_PUBLIC_API_URL: http://127.0.0.1:8001
           NEXT_PUBLIC_WS_URL: ws://127.0.0.1:8001/api/v1/ws/detections
+
+  e2e:
+    name: E2E — Playwright
+    runs-on: ubuntu-latest
+    needs: [backend-lint-test, ui-lint]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: visionops-ui/package-lock.json
+
+      - name: Install UI and Chromium
+        working-directory: visionops-ui
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Start E2E stack
+        run: docker compose up -d --build backend ui
+
+      - name: Wait for API and UI
+        run: |
+          timeout 180 bash -c 'until curl -fsS http://127.0.0.1:8001/health; do sleep 3; done'
+          timeout 180 bash -c 'until curl -fsS http://127.0.0.1:3000/cameras; do sleep 3; done'
+
+      - name: Run Playwright
+        working-directory: visionops-ui
+        run: npm run test:e2e
+        env:
+          PLAYWRIGHT_BASE_URL: http://127.0.0.1:3000
+          PLAYWRIGHT_API_URL: http://127.0.0.1:8001
+          VISIONOPS_API_KEY: visionops-dev-key
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: visionops-ui/playwright-report
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Show container logs on failure
+        if: failure()
+        run: docker compose logs --no-color --tail=200 backend ui postgres minio
+
+      - name: Stop E2E stack
+        if: always()
+        run: docker compose down -v

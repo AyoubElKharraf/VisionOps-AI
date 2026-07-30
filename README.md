@@ -1,327 +1,351 @@
 # VisionOps AI
 
-Real-time computer vision & video surveillance platform — monorepo for **Computer Vision**, **low-latency streaming**, and **Edge/Cloud processing**.
+<p align="center">
+  <strong>Real-time computer vision operations platform for live monitoring, spatial rules, and incident response.</strong>
+</p>
 
-## Architecture (Phase 1)
+<p align="center">
+  <img alt="Python 3.11+" src="https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white">
+  <img alt="FastAPI" src="https://img.shields.io/badge/API-FastAPI-009688?logo=fastapi&logoColor=white">
+  <img alt="Next.js" src="https://img.shields.io/badge/UI-Next.js%2015-000000?logo=nextdotjs&logoColor=white">
+  <img alt="ONNX Runtime" src="https://img.shields.io/badge/Inference-ONNX%20Runtime-005CED?logo=onnx&logoColor=white">
+  <img alt="Docker Compose" src="https://img.shields.io/badge/Runtime-Docker%20Compose-2496ED?logo=docker&logoColor=white">
+  <img alt="Playwright" src="https://img.shields.io/badge/E2E-Playwright-2EAD33?logo=playwright&logoColor=white">
+</p>
 
-| Module | Stack | Role |
-|--------|--------|------|
-| `visionops-engine` | Python 3.11, YOLOv8, OpenCV | Frame-by-frame detection |
-| `visionops-backend` | FastAPI, Celery, SQLAlchemy | API skeleton (`GET /health`) |
-| `visionops-ui` | Next.js 15, Tailwind, Lucide | Dashboard shell |
-| Infra | MediaMTX, Postgres 16, Redis 7, MinIO | Streaming + storage + queue |
+<p align="center">
+  <img src="docs/screenshots/overview.png" alt="VisionOps AI Control Center overview" width="100%">
+</p>
 
-## Prerequisites
+VisionOps AI turns live camera streams into operational events. It combines low-latency WebRTC playback, YOLO/ONNX inference, ByteTrack identity tracking, polygon ROI rules, tripwire counting, asynchronous media processing, and an incident-management dashboard in one Docker-based monorepo.
 
-- Docker Desktop / Docker Compose v2
-- Python **3.11+** (3.12 recommended on Windows)
-- Node.js **20+** (UI only)
-- PowerShell 5+ (Windows test script)
+## Highlights
 
-## Quick start — full stack (Docker)
+- **Low-latency live monitoring** through MediaMTX WebRTC/WHEP, with HLS and MP4 fallbacks.
+- **Real-time detection overlay** synchronized with the rendered video and configurable latency compensation.
+- **Stable object identities** using ByteTrack with Kalman-filtered boxes and short-occlusion recovery.
+- **Multi-camera management** with camera CRUD, active/inactive state, location, and stream-path derivation.
+- **Spatial analytics** with normalized polygon ROI zones and directional tripwires.
+- **Incident lifecycle**: open, acknowledge, assign, comment, resolve, reopen, and immutable event history.
+- **Alert evidence** with snapshots and clips processed asynchronously and stored in MinIO.
+- **API security** using `X-API-Key`, including authenticated WebSocket access.
+- **Versioned database schema** with Alembic migrations.
+- **Automated quality gates** covering unit, API, tracking, build, and Playwright E2E tests.
 
-One command starts infra + demo stream publisher + API + Celery worker + vision engine + UI:
+## Product tour
+
+### Live Monitor
+
+WebRTC video and WebSocket detections share the same MediaMTX source. Bounding boxes are projected onto `object-contain` video geometry, while per-track velocity compensates for transport and inference delay.
+
+<p align="center">
+  <img src="docs/screenshots/live-monitor.png" alt="Live Monitor with synchronized detections" width="100%">
+</p>
+
+### Camera management
+
+Register RTSP/HLS sources, edit metadata, disable cameras, and derive the MediaMTX path from each source URL.
+
+<p align="center">
+  <img src="docs/screenshots/cameras.png" alt="Camera management" width="100%">
+</p>
+
+### ROI Polygon Editor
+
+Draw resolution-independent intrusion zones. Coordinates are normalized before persistence and synchronized back to the inference engine.
+
+<p align="center">
+  <img src="docs/screenshots/roi-editor.png" alt="ROI polygon editor" width="100%">
+</p>
+
+### Alert Gallery
+
+Review evidence, filter incidents by camera/status, assign operators, add comments, resolve events, and inspect their history.
+
+<p align="center">
+  <img src="docs/screenshots/alert-gallery.png" alt="Alert Gallery with MinIO snapshots" width="100%">
+</p>
+
+## Architecture
+
+```mermaid
+flowchart LR
+    Source[Camera / demo MP4] --> Publisher[FFmpeg publisher]
+    Publisher --> MediaMTX[MediaMTX<br/>RTSP · WebRTC · HLS]
+    MediaMTX --> Browser[Next.js Control Center]
+    MediaMTX --> Engine[YOLOv8 · ONNX Runtime<br/>ByteTrack · ROI · Tripwire]
+
+    Engine -->|detections / alerts| API[FastAPI]
+    API --> Postgres[(PostgreSQL)]
+    API --> Redis[(Redis)]
+    Redis --> Worker[Celery worker]
+    Worker --> MinIO[(MinIO<br/>snapshots · clips)]
+    API -->|WebSocket detections| Browser
+    API -->|cameras · ROI · incidents| Browser
+    MinIO -->|presigned media URLs| Browser
+```
+
+### Components
+
+| Component | Technology | Responsibility |
+| --- | --- | --- |
+| `visionops-engine` | Python, YOLOv8, ONNX Runtime, OpenCV, ByteTrack, Shapely | Detection, tracking, ROI and tripwire evaluation |
+| `visionops-backend` | FastAPI, SQLAlchemy, Alembic, Celery | REST/WS API, persistence, lifecycle and media jobs |
+| `visionops-ui` | Next.js 15, React 19, Tailwind CSS | Operations dashboard and canvas overlays |
+| Streaming | MediaMTX, FFmpeg | RTSP ingest/publish, WebRTC/WHEP and HLS delivery |
+| Data | PostgreSQL, Redis, MinIO | Relational data, task queue and object storage |
+| Quality | Pytest, Ruff, Node Test Runner, Playwright | Unit, API, tracking and end-to-end validation |
+
+## Quick start
+
+### Prerequisites
+
+- Docker Desktop with Docker Compose v2
+- Git
+- At least 8 GB RAM recommended for the first image build
+
+Python 3.11+ and Node.js 20+ are only required for development outside Docker.
+
+### Start the complete stack
 
 ```powershell
+git clone <repository-url>
 cd VisionOps_AI
 Copy-Item .env.example .env
 docker compose up -d --build
 docker compose ps
 ```
 
-| Service | URL / port |
-|---------|------------|
-| UI | [http://localhost:3000](http://localhost:3000) |
+The first engine build/install can take several minutes. The engine image explicitly uses **CPU-only PyTorch wheels** to avoid downloading CUDA runtime packages; production inference runs through ONNX Runtime.
+
+### Open the services
+
+| Service | URL |
+| --- | --- |
+| Control Center | [http://localhost:3000](http://localhost:3000) |
 | API health | [http://127.0.0.1:8001/health](http://127.0.0.1:8001/health) |
-| API docs | [http://127.0.0.1:8001/docs](http://127.0.0.1:8001/docs) |
-| MediaMTX WHEP / HLS | `8889` / `8888` |
+| OpenAPI documentation | [http://127.0.0.1:8001/docs](http://127.0.0.1:8001/docs) |
+| HLS demo stream | [http://127.0.0.1:8888/cam1/index.m3u8](http://127.0.0.1:8888/cam1/index.m3u8) |
 | MinIO console | [http://127.0.0.1:9002](http://127.0.0.1:9002) |
 
-Useful commands:
+The Compose stack contains nine services:
+
+```text
+mediamtx · publisher · postgres · redis · minio
+backend · worker · engine · ui
+```
+
+### Useful operations
 
 ```powershell
-# logs
-docker compose logs -f backend worker engine ui
+# Follow application logs
+docker compose logs -f backend worker engine ui publisher
 
-# infra only (no app images)
-docker compose up -d mediamtx postgres redis minio
+# Rebuild application services after code changes
+docker compose up -d --build backend worker engine ui
 
-# stop everything
+# Validate the demo stream
+curl http://127.0.0.1:8888/cam1/index.m3u8
+
+# Stop the stack
 docker compose down
 ```
 
-Notes:
-- First engine start downloads YOLO weights (can take several minutes).
-- Browser calls `127.0.0.1` ports; containers talk over the `visionops` Docker network.
-- Set matching `VISIONOPS_API_KEY` (default `visionops-dev-key`).
-- Optional live camera publish: `.\scripts\publish-demo-mediamtx.ps1`
-
-## Quick start — infrastructure only
+To reset all local database/object-storage volumes:
 
 ```powershell
-cd VisionOps_AI
-Copy-Item .env.example .env
-docker compose up -d mediamtx postgres redis minio
-docker compose ps
+# Destructive: removes local VisionOps data
+docker compose down -v
 ```
 
-| Service | Host ports |
-|---------|------------|
-| MediaMTX RTSP / WebRTC / RTMP | `8554` / `8889` / `1935` |
-| PostgreSQL | `5434` *(évite conflits NeuroFlow / autres Postgres locaux)* |
-| Redis | `6380` |
-| MinIO API / Console | `9001` / `9002` |
+## Runtime flow
 
-Default MinIO login (see `.env.example`): `visionops_minio` / `visionops_minio_secret`.
+1. The `publisher` service loops `visionops-engine/data/demo.mp4` into MediaMTX path `cam1`.
+2. The browser receives that stream using WebRTC/WHEP.
+3. The engine reads the same RTSP path, performs ONNX inference, and assigns stable ByteTrack IDs.
+4. ROI/tripwire rules create alerts; detections are streamed to the UI through WebSocket.
+5. Celery generates snapshot/clip evidence and uploads it to MinIO.
+6. Operators process the incident from the Alert Gallery.
 
-## Quick start — inference engine
+## Tracking and overlay synchronization
 
-Le venv est déjà créé sous `visionops-engine/.venv` (Python 3.12).  
-**Important :** dans **CMD**, utilise `activate.bat` (pas `Activate.ps1`), ou appelle directement le Python du venv.
-
-### CMD (Invite de commandes)
-
-```bat
-cd visionops-engine
-.\.venv\Scripts\activate.bat
-python main.py --max-frames 60 --output data\annotated_output.mp4 --device cpu
-```
-
-Sans activer le venv :
-
-```bat
-cd visionops-engine
-.\.venv\Scripts\python.exe main.py --max-frames 60 --device cpu
-```
-
-### PowerShell
+ByteTrack is enabled by default:
 
 ```powershell
 cd visionops-engine
-.\.venv\Scripts\Activate.ps1
-python main.py --max-frames 60 --output data/annotated_output.mp4 --device cpu
-
-# RTSP / fichier local
-python main.py --source rtsp://localhost:8554/cam1
-python main.py --source path\to\video.mp4 --show
+python demo_roi.py --tracker bytetrack `
+  --track-low-thresh 0.10 `
+  --track-high-thresh 0.25 `
+  --track-buffer 30
 ```
 
-Smoke test (PowerShell uniquement — ne pas coller de commentaire `# ...` sur la même ligne) :
+The previous nearest-centroid tracker remains available for diagnostics:
 
 ```powershell
-.\scripts\test-phase1.ps1 -SkipDocker -MaxFrames 15
+python demo_roi.py --tracker centroid
 ```
 
-Docker image for the engine:
+The frontend uses each `track_id` to estimate object velocity and compensate for residual video/detection latency. The Live Monitor exposes a latency slider for environment-specific fine tuning.
 
-```powershell
-docker build -t visionops-engine ./visionops-engine
-docker run --rm -v ${PWD}/visionops-engine/data:/app/data visionops-engine python main.py --max-frames 30 --output data/out.mp4
+## Configuration
+
+Copy `.env.example` to `.env`, then review at least:
+
+```dotenv
+VISIONOPS_API_KEY=visionops-dev-key
+VIDEO_SOURCE=
+CAMERA_NAME=demo-camera
+YOLO_CONF=0.25
+USE_ONNX=true
+MINIO_PUBLIC_ENDPOINT=127.0.0.1:9001
 ```
 
-## Backend (Phase 3)
+The included values are for **local development only**. Use strong, externally managed secrets and HTTPS in production.
+
+### Authentication
+
+- REST API: `X-API-Key: <VISIONOPS_API_KEY>`
+- Detection WebSocket: `?api_key=<VISIONOPS_API_KEY>`
+- `/health` remains public for container orchestration.
+
+### Database migrations
+
+The backend automatically runs `alembic upgrade head` during startup.
 
 ```powershell
 cd visionops-backend
-py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+
+alembic current
+alembic upgrade head
+alembic revision --autogenerate -m "describe schema change"
+```
+
+## API overview
+
+| Area | Main endpoints |
+| --- | --- |
+| Cameras | `GET/POST /api/v1/cameras`, `PATCH/DELETE /api/v1/cameras/{id}` |
+| ROI zones | `GET/POST /api/v1/roi-zones`, `DELETE /api/v1/roi-zones/{id}` |
+| Detections | `POST /api/v1/detections`, `GET /api/v1/detections/latest` |
+| Live detections | `WS /api/v1/ws/detections` |
+| Alerts | `GET/POST /api/v1/alerts`, `GET/DELETE /api/v1/alerts/{id}` |
+| Incident workflow | `acknowledge`, `assign`, `comments`, `resolve`, `reopen`, `events` |
+
+See the interactive OpenAPI documentation at [http://127.0.0.1:8001/docs](http://127.0.0.1:8001/docs).
+
+## Development
+
+### Engine
+
+```powershell
+cd visionops-engine
+py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 
-# API (use 8001 if :8000 is busy on Windows)
-# Copy root .env.example → .env and set VISIONOPS_API_KEY
-$env:VISIONOPS_API_KEY = "visionops-dev-key"
-uvicorn app.main:app --reload --host 127.0.0.1 --port 8001
-
-# Celery worker (solo pool required on Windows) — second terminal
-celery -A app.celery_app.celery_app worker --loglevel=info --pool=solo
+python demo_roi.py --skip-benchmark --max-frames 0 `
+  --source rtsp://127.0.0.1:8554/cam1 `
+  --stream-detections --post-alerts --sync-roi `
+  --api-url http://127.0.0.1:8001 `
+  --api-key visionops-dev-key
 ```
 
-- Health: [http://127.0.0.1:8001/health](http://127.0.0.1:8001/health) *(public)*
-- Docs: [http://127.0.0.1:8001/docs](http://127.0.0.1:8001/docs)
-- `POST /api/v1/cameras` · `POST /api/v1/alerts` · `GET /api/v1/alerts` — require header `X-API-Key` when `VISIONOPS_API_KEY` is set
-- WebSocket detections: `?api_key=...` (browsers cannot send custom headers)
-
-### Database migrations (Alembic)
-
-Schema changes are versioned under `visionops-backend/alembic/versions/`.
-The API runs `alembic upgrade head` on startup.
+### Backend and worker
 
 ```powershell
 cd visionops-backend
+py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
 
-# Apply migrations manually
-alembic upgrade head
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8001
 
-# Create a new revision after editing models
-alembic revision --autogenerate -m "describe change"
-alembic upgrade head
-
-# Show current revision
-alembic current
+# Run in a second PowerShell terminal
+celery -A app.celery_app.celery_app worker --loglevel=info --pool=solo
 ```
 
-## UI — Phase 4 Control Center
+### UI
 
 ```powershell
 cd visionops-ui
-copy .env.local.example .env.local
-# Ensure NEXT_PUBLIC_API_KEY matches VISIONOPS_API_KEY
+Copy-Item .env.local.example .env.local
 npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+## Testing
 
-Pages:
-- `/` Overview (API health)
-- `/monitor` **WebRTC (MediaMTX WHEP)** / HLS / demo + canvas boxes
-- `/roi` Polygon ROI editor (persisted via API)
-- `/alerts` Alert gallery (MinIO snapshots/clips)
+The current validation baseline is:
 
-### Real WebRTC via MediaMTX
+- **Engine:** 13 tests — ByteTrack, ROI/tripwire geometry, ONNX utilities
+- **Backend:** 20 tests — API auth, migrations, camera/alert lifecycle
+- **UI:** 15 unit tests — WHEP security, geometry, stream paths, overlay sync
+- **E2E:** 3 Playwright scenarios — camera CRUD, ROI CRUD, incident workflow
 
-1. Start infra: `docker compose up -d` (exposes `8889` WHEP + `8189/udp` ICE)
-2. The `publisher` service loops `visionops-engine/data/demo.mp4` into MediaMTX path `cam1`, so no host ffmpeg is needed. Check it with:
+### Run locally
 
 ```powershell
-docker compose ps publisher
-curl http://127.0.0.1:8888/cam1/index.m3u8
-```
-
-   To publish from the host instead (requires [ffmpeg](https://ffmpeg.org) in PATH), stop that service and run the script **from PowerShell** (not `cmd.exe`):
-
-```powershell
-docker compose stop publisher
-.\scripts\publish-demo-mediamtx.ps1
-```
-
-3. Open [http://localhost:3000/monitor](http://localhost:3000/monitor) → source **WebRTC · MediaMTX WHEP**  
-   The UI plays MediaMTX path `cam1` for engine placeholder cameras (`stream://` / `file://`). Keep the publish script running; without a publisher, WHEP/HLS return `no stream is available on path 'cam1'`.
-4. (Optional) stream detections for canvas overlay:
-
-```bat
+# Engine
 cd visionops-engine
-.\.venv\Scripts\activate.bat
-python demo_roi.py --skip-benchmark --max-frames 0 --stream-detections --stream-every 2 --api-url http://127.0.0.1:8001 --api-key visionops-dev-key
+.\.venv\Scripts\python.exe -m pytest tests -q
+
+# Backend
+cd ..\visionops-backend
+.\.venv\Scripts\python.exe -m pytest tests -q
+
+# UI unit/type checks
+cd ..\visionops-ui
+npm run test:unit
+npx tsc --noEmit
+
+# Playwright against the running Docker stack
+npm run test:e2e:install
+npm run test:e2e
 ```
 
-WHEP signaling is proxied by Next.js (`/api/mediamtx/whep`) to avoid browser CORS.
-
-## Phase 1 smoke test
-
-```powershell
-.\scripts\test-phase1.ps1
-.\scripts\test-phase1.ps1 -SkipEngine
-.\scripts\test-phase1.ps1 -SkipDocker -MaxFrames 15
-```
-
-## Phase 2 — ONNX + ROI / Tripwire
-
-```bat
-cd visionops-engine
-.\.venv\Scripts\activate.bat
-pip install -r requirements.txt
-
-:: Export ONNX imgsz=416 (CPU-fast, default)
-python export_onnx.py
-:: Optional higher-accuracy 640:
-python export_onnx.py --imgsz 640 --output yolov8n_640.onnx --force
-
-:: Inference ONNX (uses yolov8n_416.onnx by default)
-python main.py --use-onnx --max-frames 60 --device cpu
-
-:: ROI demo (zone + tripwire + PyTorch vs ONNX metrics)
-python demo_roi.py --max-frames 90 --benchmark-frames 30 --device cpu
-```
-
-PowerShell smoke test:
-
-```powershell
-.\scripts\test-phase2.ps1
-.\scripts\test-phase2.ps1 -MaxFrames 60 -BenchmarkFrames 20
-```
-
-New engine modules: `export_onnx.py`, `onnx_engine.py`, `roi_manager.py`, `demo_roi.py`.
-
-## Phase 3 — Alerts API + Celery + MinIO
-
-Pipeline: engine ROI/tripwire → `POST /api/v1/alerts` → PostgreSQL → Celery worker → snapshot JPG + clip MP4 on MinIO.
-
-```bat
-:: Terminal 1 — infra
-docker compose up -d
-
-:: Terminal 2 — API
-cd visionops-backend
-.\.venv\Scripts\activate.bat
-uvicorn app.main:app --host 127.0.0.1 --port 8001
-
-:: Terminal 3 — Celery
-cd visionops-backend
-.\.venv\Scripts\activate.bat
-celery -A app.celery_app.celery_app worker --loglevel=info --pool=solo
-
-:: Terminal 4 — engine posts alerts
-cd visionops-engine
-.\.venv\Scripts\activate.bat
-python demo_roi.py --skip-benchmark --max-frames 60 --post-alerts --api-url http://127.0.0.1:8001
-```
-
-PowerShell smoke test:
-
-```powershell
-.\scripts\test-phase3.ps1
-```
+GitHub Actions runs engine lint/tests, backend API tests, UI unit/type/build checks, and Playwright Chromium against a disposable Docker stack. Failed E2E runs retain screenshots, video, traces, and an HTML report.
 
 ## Repository layout
 
 ```text
 VisionOps_AI/
-├── docker/
 ├── .github/workflows/ci.yml
-├── scripts/test-phase1.ps1 … test-phase5.ps1
-├── scripts/bench_phase5.py
-├── visionops-engine/       # YOLO / ONNX / ROI + tests
-├── visionops-backend/      # FastAPI + Celery + MinIO + tests
+├── docker/
+├── docs/screenshots/
+├── scripts/
+├── visionops-backend/
+│   ├── alembic/
+│   ├── app/
+│   └── tests/
+├── visionops-engine/
+│   ├── byte_tracker.py
+│   ├── demo_roi.py
+│   └── tests/
 ├── visionops-ui/
+│   ├── app/
+│   ├── components/
+│   ├── e2e/
+│   └── lib/
 ├── docker-compose.yml
 └── .env.example
 ```
 
-## Phase 5 — CI/CD & performance tests
+## Project status
 
-GitHub Actions (`.github/workflows/ci.yml`) runs on every push/PR:
-- **Engine**: Ruff + pytest (ROI geometry, NMS / letterbox)
-- **Backend**: Ruff + API tests against Postgres service
-- **UI**: `tsc --noEmit` + `next build`
+- [x] ONNX detection pipeline
+- [x] MediaMTX WebRTC/HLS streaming
+- [x] Multi-camera CRUD and selection
+- [x] ROI and tripwire rules
+- [x] ByteTrack identity tracking
+- [x] Video/overlay latency compensation
+- [x] Alert evidence in MinIO
+- [x] Incident lifecycle and history
+- [x] Alembic migrations
+- [x] API-key authentication and WHEP target hardening
+- [x] Unit/API/E2E CI pipeline
+- [ ] User accounts, JWT, and role-based access control
+- [ ] Prometheus/Grafana observability
+- [ ] Notification integrations (email/webhook/Slack)
+- [ ] Retention policies and storage quotas
 
-Local validation:
-
-```powershell
-docker compose up -d
-.\scripts\test-phase5.ps1
-# tests only:
-.\scripts\test-phase5.ps1 -SkipBench
-```
-
-ONNX bench only:
-
-```bat
-cd visionops-engine
-.\.venv\Scripts\activate.bat
-python ..\scripts\bench_phase5.py --frames 60
-```
-
-## Roadmap
-
-- **Phase 2** — ONNX export + ROI geometry (Shapely) ✅
-- **Phase 3** — Alerts API + Celery clip upload to MinIO ✅
-- **Phase 4** — Dashboard + canvas overlay + ROI editor + alert gallery ✅
-- **Phase 5** — CI/CD + performance tests ✅
-
-
-MinIO login (depuis .env.example) :
-
-user : visionops_minio
-password : visionops_minio_secret
