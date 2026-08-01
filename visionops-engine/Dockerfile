@@ -20,9 +20,12 @@ RUN pip install --no-cache-dir \
     torch torchvision \
     && pip install --no-cache-dir -r requirements.txt
 
-COPY main.py demo_roi.py alert_client.py byte_tracker.py onnx_engine.py export_onnx.py roi_manager.py ./
+COPY main.py demo_roi.py alert_client.py byte_tracker.py onnx_engine.py export_onnx.py roi_manager.py \
+     stream_capture.py metrics_server.py multi_cam_runner.py run_engine.sh ./
 COPY docker-entrypoint.sh /docker-entrypoint.sh
-RUN sed -i 's/\r$//' /docker-entrypoint.sh && chmod +x /docker-entrypoint.sh && mkdir -p /app/data
+RUN sed -i 's/\r$//' /docker-entrypoint.sh /app/run_engine.sh \
+    && chmod +x /docker-entrypoint.sh /app/run_engine.sh \
+    && mkdir -p /app/data
 
 ENV PYTHONUNBUFFERED=1
 ENV YOLO_MODEL=yolov8n.pt

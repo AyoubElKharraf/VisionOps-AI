@@ -263,27 +263,12 @@ services:
       RTSP_RECONNECT_MAX: ${RTSP_RECONNECT_MAX:-30.0}
       RTSP_FAIL_THRESHOLD: ${RTSP_FAIL_THRESHOLD:-2}
       RTSP_OPEN_RETRIES: ${RTSP_OPEN_RETRIES:-8}
-    command:
-      [
-        "python",
-        "demo_roi.py",
-        "--skip-benchmark",
-        "--max-frames",
-        "0",
-        "--stream-detections",
-        "--post-alerts",
-        "--sync-roi",
-        "--stream-every",
-        "${DETECTION_STREAM_EVERY:-1}",
-        "--api-url",
-        "http://backend:8001",
-        "--api-key",
-        "${VISIONOPS_API_KEY:-visionops-dev-key}",
-        "--camera-name",
-        "${CAMERA_NAME:-demo-camera}",
-        "--metrics-port",
-        "9101",
-      ]
+      CAMERA_POLL_SECONDS: ${CAMERA_POLL_SECONDS:-15}
+      CAMERA_NAME: ${CAMERA_NAME:-demo-camera}
+      DETECTION_STREAM_EVERY: ${DETECTION_STREAM_EVERY:-1}
+      # multi = one demo_roi process per active camera (API); single = legacy one-stream mode
+      ENGINE_MODE: ${ENGINE_MODE:-multi}
+    command: ["sh", "run_engine.sh"]
     volumes:
       - ./visionops-engine/data:/app/data
       - visionops_engine_weights:/models

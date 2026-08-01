@@ -245,6 +245,19 @@ The engine wraps live sources (`rtsp://`, `http://`, …) in `RobustCapture`:
 
 Tunables: `RTSP_RECONNECT`, `RTSP_RECONNECT_INITIAL`, `RTSP_RECONNECT_MAX`, `RTSP_FAIL_THRESHOLD`, `RTSP_OPEN_RETRIES`.
 
+### Multi-camera scale
+
+By default (`ENGINE_MODE=multi`) the engine container runs `multi_cam_runner.py`:
+
+1. Polls `GET /api/v1/cameras?active_only=true` every `CAMERA_POLL_SECONDS`
+2. Starts one `demo_roi.py` subprocess per active camera (`source_url` + `name`)
+3. Restarts workers when a source URL changes or a process crashes
+4. Falls back to `VIDEO_SOURCE` + `CAMERA_NAME` when the API has no cameras yet
+
+Set `ENGINE_MODE=single` for the legacy single-stream process. Add cameras in the UI (`/cameras`) to scale inference without rebuilding images.
+
+When the engine runs in Docker, set each camera `source_url` to a container-reachable host (e.g. `rtsp://mediamtx:8554/cam1`), not `127.0.0.1`.
+
 ### Notifications
 
 Configure one or more channels in `.env` (empty = disabled). Delivery runs asynchronously on the Celery worker.
@@ -345,7 +358,7 @@ npm run dev
 
 The current validation baseline is:
 
-- **Engine:** 18 tests — ByteTrack, ROI/tripwire geometry, ONNX utilities, RTSP reconnect
+- **Engine:** 23 tests — ByteTrack, ROI/tripwire, ONNX, RTSP reconnect, multi-cam supervisor
 - **Backend:** 20 tests — API auth, migrations, camera/alert lifecycle
 - **UI:** 15 unit tests — WHEP security, geometry, stream paths, overlay sync
 - **E2E:** 3 Playwright scenarios — camera CRUD, ROI CRUD, incident workflow
@@ -419,4 +432,5 @@ VisionOps_AI/
 - [x] Notification integrations (email/webhook/Slack)
 - [x] Retention policies and storage quotas
 - [x] RTSP reconnect / stream resilience
+- [x] Multi-camera engine scaling (one worker per camera)
 

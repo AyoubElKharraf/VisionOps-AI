@@ -41,9 +41,15 @@ _lock = threading.Lock()
 
 
 def start_metrics_server(port: Optional[int] = None) -> int:
-    """Start the Prometheus scrape endpoint once. Returns the listen port."""
+    """Start the Prometheus scrape endpoint once. Returns the listen port.
+
+    Pass port<=0 to skip binding (used by per-camera child workers).
+    """
     global _started
     listen_port = int(port if port is not None else os.getenv("METRICS_PORT", "9101"))
+    if listen_port <= 0:
+        logger.info("Prometheus metrics disabled (port=%d)", listen_port)
+        return listen_port
     with _lock:
         if _started:
             return listen_port

@@ -260,7 +260,9 @@ def benchmark(
 
 
 def run(args: argparse.Namespace) -> int:
-    start_metrics_server(getattr(args, "metrics_port", None))
+    metrics_port = int(getattr(args, "metrics_port", 0) or 0)
+    if metrics_port > 0:
+        start_metrics_server(metrics_port)
     source = resolve_source(args.source)
     from export_onnx import DEFAULT_IMGSZ, DEFAULT_ONNX
 
