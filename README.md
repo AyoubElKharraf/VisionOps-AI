@@ -17,18 +17,23 @@
   <img src="docs/screenshots/overview.png" alt="VisionOps AI Control Center overview" width="100%">
 </p>
 
-VisionOps AI turns live camera streams into operational events. It combines low-latency WebRTC playback, YOLO/ONNX inference, ByteTrack identity tracking, polygon ROI rules, tripwire counting, asynchronous media processing, and an incident-management dashboard in one Docker-based monorepo.
+VisionOps AI turns live camera streams into operational events. It combines low-latency WebRTC playback, YOLO/ONNX inference, ByteTrack identity tracking, multi-camera scaling, polygon ROI rules, tripwire counting, JWT/RBAC access, asynchronous media processing, notifications, retention policies, and Prometheus/Grafana observability in one Docker-based monorepo.
 
 ## Highlights
 
 - **Low-latency live monitoring** through MediaMTX WebRTC/WHEP, with HLS and MP4 fallbacks.
 - **Real-time detection overlay** synchronized with the rendered video and configurable latency compensation.
 - **Stable object identities** using ByteTrack with Kalman-filtered boxes and short-occlusion recovery.
-- **Multi-camera management** with camera CRUD, active/inactive state, location, and stream-path derivation.
+- **Multi-camera management** with camera CRUD in the UI and **one inference worker per active camera**.
+- **RTSP resilience** with exponential backoff reconnect when live streams drop.
 - **Spatial analytics** with normalized polygon ROI zones and directional tripwires.
 - **Incident lifecycle**: open, acknowledge, assign, comment, resolve, reopen, and immutable event history.
 - **Alert evidence** with snapshots and clips processed asynchronously and stored in MinIO.
-- **API security** using `X-API-Key`, including authenticated WebSocket access.
+- **Dual authentication**: service `X-API-Key` for the engine, JWT sessions + roles (`admin` / `operator`) for humans.
+- **Admin user management** UI at `/users` (create operators and admins).
+- **Notifications** via webhook, Slack, and/or SMTP email on lifecycle events.
+- **Retention & quotas** for MinIO media and resolved incidents (Celery Beat).
+- **Observability** with Prometheus metrics and a provisioned Grafana dashboard.
 - **Versioned database schema** with Alembic migrations.
 - **Automated quality gates** covering unit, API, tracking, build, and Playwright E2E tests.
 
@@ -44,7 +49,7 @@ WebRTC video and WebSocket detections share the same MediaMTX source. Bounding b
 
 ### Camera management
 
-Register RTSP/HLS sources, edit metadata, disable cameras, and derive the MediaMTX path from each source URL.
+Register RTSP/HLS sources, edit metadata, disable cameras, and derive the MediaMTX path from each source URL. In Docker, prefer container-reachable hosts such as `rtsp://mediamtx:8554/cam1`.
 
 <p align="center">
   <img src="docs/screenshots/cameras.png" alt="Camera management" width="100%">
@@ -73,27 +78,32 @@ flowchart LR
     Source[Camera / demo MP4] --> Publisher[FFmpeg publisher]
     Publisher --> MediaMTX[MediaMTX<br/>RTSP · WebRTC · HLS]
     MediaMTX --> Browser[Next.js Control Center]
-    MediaMTX --> Engine[YOLOv8 · ONNX Runtime<br/>ByteTrack · ROI · Tripwire]
+    MediaMTX --> Engine[Multi-cam supervisor<br/>YOLOv8 · ONNX · ByteTrack]
 
-    Engine -->|detections / alerts| API[FastAPI]
+    Engine -->|detections / alerts| API[FastAPI + JWT/RBAC]
     API --> Postgres[(PostgreSQL)]
     API --> Redis[(Redis)]
     Redis --> Worker[Celery worker]
+    Redis --> Beat[Celery beat<br/>retention]
     Worker --> MinIO[(MinIO<br/>snapshots · clips)]
     API -->|WebSocket detections| Browser
-    API -->|cameras · ROI · incidents| Browser
+    API -->|cameras · ROI · incidents · users| Browser
     MinIO -->|presigned media URLs| Browser
+    API --> Prom[Prometheus]
+    Engine --> Prom
+    Prom --> Grafana[Grafana]
 ```
 
 ### Components
 
 | Component | Technology | Responsibility |
 | --- | --- | --- |
-| `visionops-engine` | Python, YOLOv8, ONNX Runtime, OpenCV, ByteTrack, Shapely | Detection, tracking, ROI and tripwire evaluation |
-| `visionops-backend` | FastAPI, SQLAlchemy, Alembic, Celery | REST/WS API, persistence, lifecycle and media jobs |
-| `visionops-ui` | Next.js 15, React 19, Tailwind CSS | Operations dashboard and canvas overlays |
+| `visionops-engine` | Python, YOLOv8, ONNX Runtime, OpenCV, ByteTrack, Shapely | Multi-cam supervisor, detection, tracking, ROI/tripwire, RTSP reconnect |
+| `visionops-backend` | FastAPI, SQLAlchemy, Alembic, Celery, PyJWT | REST/WS API, auth, persistence, notifications, retention jobs |
+| `visionops-ui` | Next.js 15, React 19, Tailwind CSS | Login, dashboard, overlays, admin users |
 | Streaming | MediaMTX, FFmpeg | RTSP ingest/publish, WebRTC/WHEP and HLS delivery |
 | Data | PostgreSQL, Redis, MinIO | Relational data, task queue and object storage |
+| Observability | Prometheus, Grafana | Metrics scrape and provisioned overview dashboard |
 | Quality | Pytest, Ruff, Node Test Runner, Playwright | Unit, API, tracking and end-to-end validation |
 
 ## Quick start
@@ -118,31 +128,45 @@ docker compose ps
 
 The first engine build/install can take several minutes. The engine image explicitly uses **CPU-only PyTorch wheels** to avoid downloading CUDA runtime packages; production inference runs through ONNX Runtime.
 
+### First login
+
+1. Open [http://localhost:3000/login](http://localhost:3000/login)
+2. Sign in with the bootstrap admin (defaults):
+   - Username: `admin`
+   - Password: `visionops-admin`
+3. Create operators from **Users** (admin only), manage cameras under **Cameras**, then open **Live Monitor**.
+
+Change `VISIONOPS_JWT_SECRET` and the admin password before any shared or production deployment.
+
 ### Open the services
 
 | Service | URL |
 | --- | --- |
 | Control Center | [http://localhost:3000](http://localhost:3000) |
+| Login | [http://localhost:3000/login](http://localhost:3000/login) |
 | API health | [http://127.0.0.1:8001/health](http://127.0.0.1:8001/health) |
 | OpenAPI documentation | [http://127.0.0.1:8001/docs](http://127.0.0.1:8001/docs) |
+| Prometheus | [http://127.0.0.1:9090](http://127.0.0.1:9090) |
+| Grafana | [http://127.0.0.1:3001](http://127.0.0.1:3001) (`admin` / `admin`) |
 | HLS demo stream | [http://127.0.0.1:8888/cam1/index.m3u8](http://127.0.0.1:8888/cam1/index.m3u8) |
 | MinIO console | [http://127.0.0.1:9002](http://127.0.0.1:9002) |
 
-The Compose stack contains nine services:
+The Compose stack contains **12 services**:
 
 ```text
 mediamtx · publisher · postgres · redis · minio
-backend · worker · engine · ui
+backend · worker · beat · engine · ui
+prometheus · grafana
 ```
 
 ### Useful operations
 
 ```powershell
 # Follow application logs
-docker compose logs -f backend worker engine ui publisher
+docker compose logs -f backend worker beat engine ui publisher
 
 # Rebuild application services after code changes
-docker compose up -d --build backend worker engine ui
+docker compose up -d --build backend worker beat engine ui prometheus grafana
 
 # Validate the demo stream
 curl http://127.0.0.1:8888/cam1/index.m3u8
@@ -161,11 +185,12 @@ docker compose down -v
 ## Runtime flow
 
 1. The `publisher` service loops `visionops-engine/data/demo.mp4` into MediaMTX path `cam1`.
-2. The browser receives that stream using WebRTC/WHEP.
-3. The engine reads the same RTSP path, performs ONNX inference, and assigns stable ByteTrack IDs.
-4. ROI/tripwire rules create alerts; detections are streamed to the UI through WebSocket.
-5. Celery generates snapshot/clip evidence and uploads it to MinIO.
-6. Operators process the incident from the Alert Gallery.
+2. The browser receives that stream using WebRTC/WHEP (after JWT login).
+3. The engine **multi-cam supervisor** polls active cameras and runs one `demo_roi` worker per camera (fallback: `VIDEO_SOURCE` + `CAMERA_NAME`).
+4. Each worker performs ONNX inference, ByteTrack IDs, ROI/tripwire rules, and reconnects on RTSP failures.
+5. Detections stream to the UI over WebSocket; alerts are posted to FastAPI.
+6. Celery generates snapshot/clip evidence in MinIO; Beat applies retention policies.
+7. Operators handle incidents in the Alert Gallery; optional webhook/Slack/email notifications fire on configured events.
 
 ## Tracking and overlay synchronization
 
@@ -196,8 +221,9 @@ VISIONOPS_API_KEY=visionops-dev-key
 VISIONOPS_JWT_SECRET=visionops-dev-jwt-secret-change-me
 VISIONOPS_ADMIN_USERNAME=admin
 VISIONOPS_ADMIN_PASSWORD=visionops-admin
-VIDEO_SOURCE=
+ENGINE_MODE=multi
 CAMERA_NAME=demo-camera
+VIDEO_SOURCE=rtsp://mediamtx:8554/cam1
 YOLO_CONF=0.25
 USE_ONNX=true
 MINIO_PUBLIC_ENDPOINT=127.0.0.1:9001
@@ -215,8 +241,8 @@ VisionOps supports dual authentication:
 | Humans (UI) | `Authorization: Bearer <JWT>` | Login at `/login`; roles `admin` / `operator` |
 | Detection WebSocket | `?token=<JWT>` or `?api_key=` | Browsers cannot set custom headers |
 
-- `/health` and `GET /api/v1/auth/status` remain public.
-- **admin**: camera CRUD, user creation (UI `/users`), alert delete, full incident workflow.
+- `/health`, `GET /metrics`, and `GET /api/v1/auth/status` remain public (or scrape-friendly).
+- **admin**: camera CRUD, user creation (UI `/users`), alert delete, retention trigger, full incident workflow.
 - **operator**: read cameras/monitor/ROI, run incident workflow; no camera CRUD or user management.
 - On first boot with `VISIONOPS_JWT_SECRET` set and an empty `users` table, the backend creates the bootstrap admin (`admin` / `visionops-admin` by default).
 
@@ -227,11 +253,11 @@ Prometheus scrapes:
 | Target | URL |
 | --- | --- |
 | Backend | `http://127.0.0.1:8001/metrics` |
-| Engine | `http://127.0.0.1:9101/metrics` |
+| Engine supervisor | `http://127.0.0.1:9101/metrics` |
 | Prometheus UI | [http://127.0.0.1:9090](http://127.0.0.1:9090) |
 | Grafana | [http://127.0.0.1:3001](http://127.0.0.1:3001) (default `admin` / `admin`) |
 
-Key series: `visionops_engine_fps`, `visionops_engine_infer_ms`, `visionops_engine_stream_up`, `visionops_engine_reconnects_total`, `visionops_http_request_duration_seconds`, `visionops_alerts_created_total`, `visionops_celery_queue_depth`.
+Key series include: `visionops_engine_fps`, `visionops_engine_infer_ms`, `visionops_engine_stream_up`, `visionops_engine_reconnects_total`, `visionops_engine_workers`, `visionops_http_request_duration_seconds`, `visionops_alerts_created_total`, `visionops_celery_queue_depth`.
 
 The **VisionOps Overview** dashboard is provisioned automatically under the VisionOps folder in Grafana.
 
@@ -324,11 +350,19 @@ py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 
+# Single camera
 python demo_roi.py --skip-benchmark --max-frames 0 `
   --source rtsp://127.0.0.1:8554/cam1 `
   --stream-detections --post-alerts --sync-roi `
   --api-url http://127.0.0.1:8001 `
   --api-key visionops-dev-key
+
+# Multi-camera supervisor (polls active cameras from the API)
+python multi_cam_runner.py `
+  --api-url http://127.0.0.1:8001 `
+  --api-key visionops-dev-key `
+  --fallback-source rtsp://127.0.0.1:8554/cam1 `
+  --fallback-camera demo-camera
 ```
 
 ### Backend and worker
@@ -341,8 +375,11 @@ pip install -r requirements.txt
 
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8001
 
-# Run in a second PowerShell terminal
+# Second terminal — media + notification tasks
 celery -A app.celery_app.celery_app worker --loglevel=info --pool=solo
+
+# Third terminal — retention schedule
+celery -A app.celery_app.celery_app beat --loglevel=info
 ```
 
 ### UI
@@ -356,12 +393,12 @@ npm run dev
 
 ## Testing
 
-The current validation baseline is:
+Current validation baseline:
 
 - **Engine:** 23 tests — ByteTrack, ROI/tripwire, ONNX, RTSP reconnect, multi-cam supervisor
-- **Backend:** 20 tests — API auth, migrations, camera/alert lifecycle
+- **Backend:** 39 tests — JWT/API-key auth, metrics, notifications, retention, cameras/alerts lifecycle
 - **UI:** 15 unit tests — WHEP security, geometry, stream paths, overlay sync
-- **E2E:** 3 Playwright scenarios — camera CRUD, ROI CRUD, incident workflow
+- **E2E:** 3 Playwright scenarios — camera CRUD, ROI CRUD, incident workflow (JWT session injected when enabled)
 
 ### Run locally
 
@@ -392,25 +429,29 @@ GitHub Actions runs engine lint/tests, backend API tests, UI unit/type/build che
 VisionOps_AI/
 ├── .github/workflows/ci.yml
 ├── deploy/
-│   ├── grafana/
-│   └── prometheus/
+│   ├── grafana/                 # datasource + VisionOps Overview dashboard
+│   └── prometheus/              # scrape config (backend + engine)
 ├── docker/
 ├── docs/screenshots/
 ├── scripts/
 ├── visionops-backend/
 │   ├── alembic/
-│   ├── app/
+│   ├── app/                     # auth, metrics, notifications, retention, routers
 │   └── tests/
 ├── visionops-engine/
-│   ├── byte_tracker.py
+│   ├── multi_cam_runner.py      # one worker process per active camera
+│   ├── stream_capture.py        # RTSP reconnect / backoff
+│   ├── metrics_server.py
 │   ├── demo_roi.py
+│   ├── byte_tracker.py
+│   ├── run_engine.sh            # ENGINE_MODE=multi|single entrypoint
 │   └── tests/
 ├── visionops-ui/
-│   ├── app/
+│   ├── app/                     # login, users, cameras, monitor, roi, alerts
 │   ├── components/
 │   ├── e2e/
 │   └── lib/
-├── docker-compose.yml
+├── docker-compose.yml           # 12 services including beat, prometheus, grafana
 └── .env.example
 ```
 
@@ -428,9 +469,13 @@ VisionOps_AI/
 - [x] API-key authentication and WHEP target hardening
 - [x] Unit/API/E2E CI pipeline
 - [x] User accounts, JWT, and role-based access control
+- [x] Admin users UI (`/users`)
 - [x] Prometheus/Grafana observability
 - [x] Notification integrations (email/webhook/Slack)
 - [x] Retention policies and storage quotas
 - [x] RTSP reconnect / stream resilience
 - [x] Multi-camera engine scaling (one worker per camera)
 
+## License
+
+See the repository license file if present; otherwise treat as a private/academic project unless otherwise stated.
