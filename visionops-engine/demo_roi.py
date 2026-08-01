@@ -24,6 +24,7 @@ from main import (
 )
 from alert_client import AlertClient
 from byte_tracker import ByteTrackAdapter
+from metrics_server import record_alert_posted, record_frame, start_metrics_server
 from onnx_engine import COCO_NAMES, ONNXInferenceEngine
 from roi_manager import (
     CrossingDirection,
@@ -171,6 +172,12 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("--camera-name", type=str, default="demo-camera")
     p.add_argument(
+        "--metrics-port",
+        type=int,
+        default=int(os.getenv("METRICS_PORT", "9101")),
+        help="Prometheus metrics HTTP port (default 9101)",
+    )
+    p.add_argument(
         "--sync-roi",
         action="store_true",
         help="Load ROI zones from the backend even when alerts/streaming are disabled",
@@ -227,6 +234,7 @@ def benchmark(
 
 
 def run(args: argparse.Namespace) -> int:
+    start_metrics_server(getattr(args, "metrics_port", None))
     source = resolve_source(args.source)
     from export_onnx import DEFAULT_IMGSZ, DEFAULT_ONNX
 
@@ -381,6 +389,7 @@ def run(args: argparse.Namespace) -> int:
                                 metadata={"object_count": a.object_count, "infer_ms": infer_ms},
                             )
                             posted_alerts += 1
+                            record_alert_posted()
                             last_posted[key] = frame_idx
             for c in crossings:
                 crossing_total += 1
@@ -401,9 +410,11 @@ def run(args: argparse.Namespace) -> int:
                             metadata={"direction": c.direction, "infer_ms": infer_ms},
                         )
                         posted_alerts += 1
+                        record_alert_posted()
                         last_posted[key] = frame_idx
 
             avg_fps = sum(fps_window) / len(fps_window) if fps_window else 0.0
+            record_frame(fps=avg_fps, infer_ms=infer_ms, detection_count=len(detections))
             need_draw = writer is not None or show
             if need_draw:
                 annotated = frame.copy()

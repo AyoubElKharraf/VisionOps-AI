@@ -14,6 +14,7 @@ from app.config import get_settings
 from app.database import SessionLocal
 from app.minio_client import upload_bytes, upload_file
 from app.models import Alert, AlertStatus
+from app.notifications import dispatch_channels
 
 logger = logging.getLogger("visionops.tasks")
 
@@ -124,6 +125,23 @@ def process_alert_media(self, alert_id: str, snapshot_b64: str | None = None) ->
         raise self.retry(exc=exc, countdown=5)
     finally:
         db.close()
+
+
+@celery_app.task(name="visionops.dispatch_alert_notification", bind=True, max_retries=2)
+def dispatch_alert_notification(self, payload: dict) -> dict:
+    """Deliver alert notification to configured webhook / Slack / email channels."""
+    try:
+        results = dispatch_channels(payload)
+        logger.info(
+            "Notification dispatched event=%s alert=%s results=%s",
+            payload.get("event"),
+            payload.get("alert_id"),
+            results,
+        )
+        return {"ok": True, "results": results, "alert_id": payload.get("alert_id")}
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("dispatch_alert_notification failed: %s", exc)
+        raise self.retry(exc=exc, countdown=5)
 
 
 @celery_app.task(name="visionops.ping")

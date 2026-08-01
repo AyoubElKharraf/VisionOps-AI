@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.auth import require_auth, require_roles
 from app.database import get_db
+from app.metrics import record_alert_created
 from app.minio_client import ensure_bucket, presigned_get_url
 from app.models import (
     Alert,
@@ -20,6 +21,7 @@ from app.models import (
     IncidentStatus,
     UserRole,
 )
+from app.notifications import enqueue_alert_notification
 from app.schemas import (
     AlertActorNote,
     AlertAssign,
@@ -130,7 +132,14 @@ def create_alert(payload: AlertCreate, db: Session = Depends(get_db)) -> AlertRe
         metadata={"alert_type": payload.alert_type.value},
     )
     db.commit()
+    alert_type = (
+        payload.alert_type.value
+        if hasattr(payload.alert_type, "value")
+        else str(payload.alert_type)
+    )
+    record_alert_created(alert_type)
     alert = _get_alert(db, alert.id, with_events=True)
+    enqueue_alert_notification(alert, event="created", actor="system")
 
     if payload.enqueue_media and (payload.snapshot_base64 or payload.source_video_path):
         process_alert_media.delay(str(alert.id), payload.snapshot_base64)
@@ -214,6 +223,7 @@ def acknowledge_alert(
     )
     db.commit()
     alert = _get_alert(db, alert_id, with_events=True)
+    enqueue_alert_notification(alert, event="acknowledged", actor=actor, note=note)
     return _to_read(alert, include_events=True)
 
 
@@ -245,6 +255,7 @@ def assign_alert(
     )
     db.commit()
     alert = _get_alert(db, alert_id, with_events=True)
+    enqueue_alert_notification(alert, event="assigned", actor=actor, note=message)
     return _to_read(alert, include_events=True)
 
 
@@ -270,6 +281,7 @@ def resolve_alert(
     )
     db.commit()
     alert = _get_alert(db, alert_id, with_events=True)
+    enqueue_alert_notification(alert, event="resolved", actor=actor, note=note)
     return _to_read(alert, include_events=True)
 
 
@@ -295,6 +307,7 @@ def reopen_alert(
     )
     db.commit()
     alert = _get_alert(db, alert_id, with_events=True)
+    enqueue_alert_notification(alert, event="reopened", actor=actor, note=note)
     return _to_read(alert, include_events=True)
 
 
@@ -315,6 +328,9 @@ def comment_alert(
     )
     db.commit()
     alert = _get_alert(db, alert_id, with_events=True)
+    enqueue_alert_notification(
+        alert, event="commented", actor=actor, note=payload.message.strip()
+    )
     return _to_read(alert, include_events=True)
 
 

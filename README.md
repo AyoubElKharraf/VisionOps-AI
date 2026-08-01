@@ -220,6 +220,34 @@ VisionOps supports dual authentication:
 - **operator**: read cameras/monitor/ROI, run incident workflow; no camera CRUD.
 - On first boot with `VISIONOPS_JWT_SECRET` set and an empty `users` table, the backend creates the bootstrap admin (`admin` / `visionops-admin` by default).
 
+### Observability
+
+Prometheus scrapes:
+
+| Target | URL |
+| --- | --- |
+| Backend | `http://127.0.0.1:8001/metrics` |
+| Engine | `http://127.0.0.1:9101/metrics` |
+| Prometheus UI | [http://127.0.0.1:9090](http://127.0.0.1:9090) |
+| Grafana | [http://127.0.0.1:3001](http://127.0.0.1:3001) (default `admin` / `admin`) |
+
+Key series: `visionops_engine_fps`, `visionops_engine_infer_ms`, `visionops_http_request_duration_seconds`, `visionops_alerts_created_total`, `visionops_celery_queue_depth`.
+
+The **VisionOps Overview** dashboard is provisioned automatically under the VisionOps folder in Grafana.
+
+### Notifications
+
+Configure one or more channels in `.env` (empty = disabled). Delivery runs asynchronously on the Celery worker.
+
+| Channel | Variables |
+| --- | --- |
+| Generic webhook | `NOTIFY_WEBHOOK_URL` — JSON POST with `event_type`, alert fields, `dashboard_url` |
+| Slack | `NOTIFY_SLACK_WEBHOOK_URL` — Incoming Webhook |
+| Email | `NOTIFY_EMAIL_TO` + `NOTIFY_SMTP_HOST` (+ optional user/password/TLS) |
+
+`NOTIFY_EVENTS` defaults to `created,resolved` (use `all` for every lifecycle event).  
+Status: `GET /api/v1/notifications/status` (authenticated).
+
 ### Database migrations
 
 The backend automatically runs `alembic upgrade head` during startup.
@@ -238,6 +266,8 @@ alembic revision --autogenerate -m "describe schema change"
 | Area | Main endpoints |
 | --- | --- |
 | Auth | `POST /api/v1/auth/login`, `GET /me`, `GET/POST /users`, `GET /status` |
+| Metrics | `GET /metrics` (Prometheus text), engine `:9101/metrics` |
+| Notifications | `GET /api/v1/notifications/status` |
 | Cameras | `GET/POST /api/v1/cameras`, `PATCH/DELETE /api/v1/cameras/{id}` |
 | ROI zones | `GET/POST /api/v1/roi-zones`, `DELETE /api/v1/roi-zones/{id}` |
 | Detections | `POST /api/v1/detections`, `GET /api/v1/detections/latest` |
@@ -324,6 +354,9 @@ GitHub Actions runs engine lint/tests, backend API tests, UI unit/type/build che
 ```text
 VisionOps_AI/
 ├── .github/workflows/ci.yml
+├── deploy/
+│   ├── grafana/
+│   └── prometheus/
 ├── docker/
 ├── docs/screenshots/
 ├── scripts/
@@ -357,8 +390,8 @@ VisionOps_AI/
 - [x] Alembic migrations
 - [x] API-key authentication and WHEP target hardening
 - [x] Unit/API/E2E CI pipeline
-- [ ] User accounts, JWT, and role-based access control
-- [ ] Prometheus/Grafana observability
-- [ ] Notification integrations (email/webhook/Slack)
+- [x] User accounts, JWT, and role-based access control
+- [x] Prometheus/Grafana observability
+- [x] Notification integrations (email/webhook/Slack)
 - [ ] Retention policies and storage quotas
 

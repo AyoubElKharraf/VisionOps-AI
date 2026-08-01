@@ -10,5 +10,6 @@ pydantic-settings>=2.4.0
 python-multipart>=0.0.9
 PyJWT>=2.9.0
 bcrypt>=4.2.0
+prometheus-client>=0.21.0
 opencv-python-headless>=4.10.0
 numpy>=1.26.0

@@ -11,8 +11,9 @@ from app.auth import auth_enforced
 from app.bootstrap import ensure_bootstrap_admin
 from app.config import get_settings
 from app.database import SessionLocal, run_migrations
+from app.metrics import PrometheusMiddleware, metrics_response
 from app.minio_client import ensure_bucket
-from app.routers import alerts, auth, cameras
+from app.routers import alerts, auth, cameras, notifications
 from app.routers import stream as stream_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
@@ -26,6 +27,7 @@ app = FastAPI(
     version="0.5.0",
 )
 
+app.add_middleware(PrometheusMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -37,6 +39,7 @@ app.add_middleware(
 app.include_router(auth.router, prefix=settings.api_prefix)
 app.include_router(cameras.router, prefix=settings.api_prefix)
 app.include_router(alerts.router, prefix=settings.api_prefix)
+app.include_router(notifications.router, prefix=settings.api_prefix)
 app.include_router(stream_router.router, prefix=settings.api_prefix)
 app.include_router(stream_router.ws_router, prefix=settings.api_prefix)
 
@@ -75,12 +78,18 @@ def health() -> dict[str, str]:
     return {"status": "ok", "service": "visionops-backend", "phase": "5"}
 
 
+@app.get("/metrics")
+def metrics():
+    return metrics_response()
+
+
 @app.get("/")
 def root() -> dict[str, str]:
     return {
         "service": "visionops-backend",
         "docs": "/docs",
         "health": "/health",
+        "metrics": "/metrics",
         "api": settings.api_prefix,
         "auth_login": f"{settings.api_prefix}/auth/login",
         "ws_detections": f"{settings.api_prefix}/ws/detections",

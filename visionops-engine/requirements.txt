@@ -8,3 +8,4 @@ numpy>=1.26.0
 shapely>=2.0.0
 requests>=2.32.0
 pydantic>=2.8.0
+prometheus-client>=0.21.0

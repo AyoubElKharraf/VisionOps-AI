@@ -42,6 +42,21 @@ class Settings(BaseSettings):
     alert_clip_pre_seconds: float = 2.0
     alert_clip_post_seconds: float = 3.0
 
+    # Notifications (empty = channel disabled)
+    notify_webhook_url: str = ""
+    notify_slack_webhook_url: str = ""
+    notify_email_to: str = ""
+    notify_smtp_host: str = ""
+    notify_smtp_port: int = 587
+    notify_smtp_user: str = ""
+    notify_smtp_password: str = ""
+    notify_smtp_from: str = "visionops@localhost"
+    notify_smtp_use_tls: bool = True
+    # Comma-separated: created,acknowledged,assigned,resolved,reopened,commented — or "all"
+    notify_events: str = "created,resolved"
+    # Optional link base for notification bodies (e.g. http://127.0.0.1:3000/alerts)
+    notify_dashboard_base_url: str = "http://127.0.0.1:3000/alerts"
+
 
 @lru_cache
 def get_settings() -> Settings:

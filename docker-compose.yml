@@ -135,6 +135,17 @@ services:
       VISIONOPS_ADMIN_USERNAME: ${VISIONOPS_ADMIN_USERNAME:-admin}
       VISIONOPS_ADMIN_PASSWORD: ${VISIONOPS_ADMIN_PASSWORD:-visionops-admin}
       VISIONOPS_ADMIN_FULL_NAME: ${VISIONOPS_ADMIN_FULL_NAME:-VisionOps Admin}
+      NOTIFY_WEBHOOK_URL: ${NOTIFY_WEBHOOK_URL:-}
+      NOTIFY_SLACK_WEBHOOK_URL: ${NOTIFY_SLACK_WEBHOOK_URL:-}
+      NOTIFY_EMAIL_TO: ${NOTIFY_EMAIL_TO:-}
+      NOTIFY_SMTP_HOST: ${NOTIFY_SMTP_HOST:-}
+      NOTIFY_SMTP_PORT: ${NOTIFY_SMTP_PORT:-587}
+      NOTIFY_SMTP_USER: ${NOTIFY_SMTP_USER:-}
+      NOTIFY_SMTP_PASSWORD: ${NOTIFY_SMTP_PASSWORD:-}
+      NOTIFY_SMTP_FROM: ${NOTIFY_SMTP_FROM:-visionops@localhost}
+      NOTIFY_SMTP_USE_TLS: ${NOTIFY_SMTP_USE_TLS:-true}
+      NOTIFY_EVENTS: ${NOTIFY_EVENTS:-created,resolved}
+      NOTIFY_DASHBOARD_BASE_URL: ${NOTIFY_DASHBOARD_BASE_URL:-http://127.0.0.1:3000/alerts}
     ports:
       - "${API_PORT:-8001}:8001"
     volumes:
@@ -172,6 +183,17 @@ services:
       MINIO_BUCKET: ${MINIO_BUCKET:-visionops-media}
       MINIO_SECURE: ${MINIO_SECURE:-false}
       VISIONOPS_API_KEY: ${VISIONOPS_API_KEY:-visionops-dev-key}
+      NOTIFY_WEBHOOK_URL: ${NOTIFY_WEBHOOK_URL:-}
+      NOTIFY_SLACK_WEBHOOK_URL: ${NOTIFY_SLACK_WEBHOOK_URL:-}
+      NOTIFY_EMAIL_TO: ${NOTIFY_EMAIL_TO:-}
+      NOTIFY_SMTP_HOST: ${NOTIFY_SMTP_HOST:-}
+      NOTIFY_SMTP_PORT: ${NOTIFY_SMTP_PORT:-587}
+      NOTIFY_SMTP_USER: ${NOTIFY_SMTP_USER:-}
+      NOTIFY_SMTP_PASSWORD: ${NOTIFY_SMTP_PASSWORD:-}
+      NOTIFY_SMTP_FROM: ${NOTIFY_SMTP_FROM:-visionops@localhost}
+      NOTIFY_SMTP_USE_TLS: ${NOTIFY_SMTP_USE_TLS:-true}
+      NOTIFY_EVENTS: ${NOTIFY_EVENTS:-created,resolved}
+      NOTIFY_DASHBOARD_BASE_URL: ${NOTIFY_DASHBOARD_BASE_URL:-http://127.0.0.1:3000/alerts}
     volumes:
       - ./visionops-engine/data:/app/data:ro
     networks: [visionops]
@@ -195,6 +217,7 @@ services:
       VISIONOPS_API_KEY: ${VISIONOPS_API_KEY:-visionops-dev-key}
       YOLO_CONF: ${YOLO_CONF:-0.25}
       USE_ONNX: ${USE_ONNX:-true}
+      METRICS_PORT: "9101"
     command:
       [
         "python",
@@ -213,11 +236,15 @@ services:
         "${VISIONOPS_API_KEY:-visionops-dev-key}",
         "--camera-name",
         "${CAMERA_NAME:-demo-camera}",
+        "--metrics-port",
+        "9101",
       ]
     volumes:
       - ./visionops-engine/data:/app/data
       - visionops_engine_weights:/models
       - visionops_ultralytics_cache:/root/.cache
+    ports:
+      - "${ENGINE_METRICS_PORT:-9101}:9101"
     networks: [visionops]
 
   ui:
@@ -242,6 +269,42 @@ services:
       - "${UI_PORT:-3000}:3000"
     networks: [visionops]
 
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: visionops-prometheus
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - visionops_prometheus_data:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks: [visionops]
+
+  grafana:
+    image: grafana/grafana:11.3.1
+    container_name: visionops-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    volumes:
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - visionops_grafana_data:/var/lib/grafana
+    ports:
+      - "${GRAFANA_PORT:-3001}:3000"
+    depends_on:
+      - prometheus
+    networks: [visionops]
+
 networks:
   visionops:
     driver: bridge
@@ -252,3 +315,5 @@ volumes:
   visionops_minio_data:
   visionops_engine_weights:
   visionops_ultralytics_cache:
+  visionops_prometheus_data:
+  visionops_grafana_data:
