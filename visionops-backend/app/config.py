@@ -57,6 +57,17 @@ class Settings(BaseSettings):
     # Optional link base for notification bodies (e.g. http://127.0.0.1:3000/alerts)
     notify_dashboard_base_url: str = "http://127.0.0.1:3000/alerts"
 
+    # Retention / storage quotas
+    retention_enabled: bool = True
+    # Delete alert media older than N days (0 = skip age-based media purge)
+    retention_media_days: int = 30
+    # Delete resolved alert rows (+ media) older than N days (0 = keep forever)
+    retention_resolved_alert_days: int = 90
+    # Soft bucket quota in megabytes (0 = unlimited). Oldest objects purged first when exceeded.
+    retention_bucket_quota_mb: int = 5120
+    # Celery Beat interval for automatic runs
+    retention_interval_minutes: int = 60
+
 
 @lru_cache
 def get_settings() -> Settings:

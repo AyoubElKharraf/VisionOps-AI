@@ -9,6 +9,7 @@ import {
   Hexagon,
   LayoutDashboard,
   LogOut,
+  Users,
   Video,
 } from "lucide-react";
 import clsx from "clsx";
@@ -20,12 +21,13 @@ const links = [
   { href: "/monitor", label: "Live Monitor", icon: Camera },
   { href: "/roi", label: "ROI Editor", icon: Hexagon },
   { href: "/alerts", label: "Alert Gallery", icon: Bell },
+  { href: "/users", label: "Users", icon: Users, adminOnly: true },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, logout, ready } = useAuth();
+  const { user, logout, ready, isAdmin } = useAuth();
 
   if (pathname === "/login") {
     return <>{children}</>;
@@ -35,6 +37,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     logout();
     router.replace("/login");
   };
+
+  const visibleLinks = links.filter((link) => !link.adminOnly || isAdmin);
 
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[240px_1fr]">
@@ -49,7 +53,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
         <nav className="flex gap-1 overflow-x-auto lg:flex-col">
-          {links.map(({ href, label, icon: Icon }) => {
+          {visibleLinks.map(({ href, label, icon: Icon }) => {
             const active = pathname === href;
             return (
               <Link

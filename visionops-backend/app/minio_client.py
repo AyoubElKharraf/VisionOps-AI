@@ -85,3 +85,47 @@ def presigned_get_url(object_key: str, expires_hours: int = 24) -> str | None:
     except (S3Error, MinioException, Urllib3HTTPError, OSError):
         logger.warning("Presign failed for %s", object_key, exc_info=True)
         return None
+
+
+def delete_object(object_key: str) -> bool:
+    """Remove one object. Missing keys are treated as success."""
+    if not object_key:
+        return False
+    settings = get_settings()
+    client = get_minio_client()
+    try:
+        client.remove_object(settings.minio_bucket, object_key)
+        return True
+    except S3Error as exc:
+        if getattr(exc, "code", "") in {"NoSuchKey", "NoSuchObject"}:
+            return True
+        logger.warning("Failed to delete %s: %s", object_key, exc)
+        return False
+    except (MinioException, Urllib3HTTPError, OSError) as exc:
+        logger.warning("Failed to delete %s: %s", object_key, exc)
+        return False
+
+
+def list_objects(prefix: str = "alerts/") -> list[dict]:
+    """Return [{key, size, last_modified}] for objects under prefix."""
+    settings = get_settings()
+    client = get_minio_client()
+    out: list[dict] = []
+    try:
+        for obj in client.list_objects(settings.minio_bucket, prefix=prefix, recursive=True):
+            if obj.is_dir:
+                continue
+            out.append(
+                {
+                    "key": obj.object_name,
+                    "size": int(obj.size or 0),
+                    "last_modified": obj.last_modified,
+                }
+            )
+    except (S3Error, MinioException, Urllib3HTTPError, OSError) as exc:
+        logger.warning("list_objects failed: %s", exc)
+    return out
+
+
+def bucket_usage_bytes(prefix: str = "alerts/") -> int:
+    return sum(int(item["size"]) for item in list_objects(prefix))

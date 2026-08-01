@@ -144,6 +144,25 @@ export type DetectionFrame = {
   zone_alerts: string[];
 };
 
+export type AuthUserRole = "admin" | "operator";
+
+export type AuthUserProfile = {
+  id: string;
+  username: string;
+  full_name: string | null;
+  role: AuthUserRole;
+  is_active: boolean;
+  created_at: string;
+};
+
+export type UserInput = {
+  username: string;
+  password: string;
+  full_name?: string | null;
+  role?: AuthUserRole;
+  is_active?: boolean;
+};
+
 export type CameraInput = {
   name: string;
   source_url: string;
@@ -248,4 +267,10 @@ export const visionopsApi = {
   deleteZone: (id: string) =>
     api<void>(`/api/v1/roi-zones/${id}`, { method: "DELETE" }),
   latestDetections: () => api<DetectionFrame>("/api/v1/detections/latest"),
+  listUsers: () => api<AuthUserProfile[]>("/api/v1/auth/users"),
+  createUser: (body: UserInput) =>
+    api<AuthUserProfile>("/api/v1/auth/users", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 };

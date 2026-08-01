@@ -216,8 +216,8 @@ VisionOps supports dual authentication:
 | Detection WebSocket | `?token=<JWT>` or `?api_key=` | Browsers cannot set custom headers |
 
 - `/health` and `GET /api/v1/auth/status` remain public.
-- **admin**: camera CRUD, user creation, alert delete, full incident workflow.
-- **operator**: read cameras/monitor/ROI, run incident workflow; no camera CRUD.
+- **admin**: camera CRUD, user creation (UI `/users`), alert delete, full incident workflow.
+- **operator**: read cameras/monitor/ROI, run incident workflow; no camera CRUD or user management.
 - On first boot with `VISIONOPS_JWT_SECRET` set and an empty `users` table, the backend creates the bootstrap admin (`admin` / `visionops-admin` by default).
 
 ### Observability
@@ -231,9 +231,19 @@ Prometheus scrapes:
 | Prometheus UI | [http://127.0.0.1:9090](http://127.0.0.1:9090) |
 | Grafana | [http://127.0.0.1:3001](http://127.0.0.1:3001) (default `admin` / `admin`) |
 
-Key series: `visionops_engine_fps`, `visionops_engine_infer_ms`, `visionops_http_request_duration_seconds`, `visionops_alerts_created_total`, `visionops_celery_queue_depth`.
+Key series: `visionops_engine_fps`, `visionops_engine_infer_ms`, `visionops_engine_stream_up`, `visionops_engine_reconnects_total`, `visionops_http_request_duration_seconds`, `visionops_alerts_created_total`, `visionops_celery_queue_depth`.
 
 The **VisionOps Overview** dashboard is provisioned automatically under the VisionOps folder in Grafana.
+
+### RTSP resilience
+
+The engine wraps live sources (`rtsp://`, `http://`, …) in `RobustCapture`:
+
+- Retries the initial open with exponential backoff
+- Reconnects after consecutive failed reads (does not exit the process)
+- File sources still stop at EOF (no reconnect loop)
+
+Tunables: `RTSP_RECONNECT`, `RTSP_RECONNECT_INITIAL`, `RTSP_RECONNECT_MAX`, `RTSP_FAIL_THRESHOLD`, `RTSP_OPEN_RETRIES`.
 
 ### Notifications
 
@@ -247,6 +257,19 @@ Configure one or more channels in `.env` (empty = disabled). Delivery runs async
 
 `NOTIFY_EVENTS` defaults to `created,resolved` (use `all` for every lifecycle event).  
 Status: `GET /api/v1/notifications/status` (authenticated).
+
+### Retention and storage quotas
+
+Automatic Celery Beat job (service `beat`) applies three policies:
+
+1. **Media age** — delete MinIO snapshots/clips for alerts older than `RETENTION_MEDIA_DAYS` (default 30).
+2. **Resolved incidents** — delete resolved alert rows (+ media) older than `RETENTION_RESOLVED_ALERT_DAYS` (default 90).
+3. **Bucket quota** — if `alerts/` usage exceeds `RETENTION_BUCKET_QUOTA_MB` (default 5120), delete oldest objects until under quota.
+
+| Endpoint | Access |
+| --- | --- |
+| `GET /api/v1/retention/status` | Authenticated |
+| `POST /api/v1/retention/run?dry_run=true&async_run=false` | Admin |
 
 ### Database migrations
 
@@ -268,6 +291,7 @@ alembic revision --autogenerate -m "describe schema change"
 | Auth | `POST /api/v1/auth/login`, `GET /me`, `GET/POST /users`, `GET /status` |
 | Metrics | `GET /metrics` (Prometheus text), engine `:9101/metrics` |
 | Notifications | `GET /api/v1/notifications/status` |
+| Retention | `GET /api/v1/retention/status`, `POST /api/v1/retention/run` |
 | Cameras | `GET/POST /api/v1/cameras`, `PATCH/DELETE /api/v1/cameras/{id}` |
 | ROI zones | `GET/POST /api/v1/roi-zones`, `DELETE /api/v1/roi-zones/{id}` |
 | Detections | `POST /api/v1/detections`, `GET /api/v1/detections/latest` |
@@ -321,7 +345,7 @@ npm run dev
 
 The current validation baseline is:
 
-- **Engine:** 13 tests — ByteTrack, ROI/tripwire geometry, ONNX utilities
+- **Engine:** 18 tests — ByteTrack, ROI/tripwire geometry, ONNX utilities, RTSP reconnect
 - **Backend:** 20 tests — API auth, migrations, camera/alert lifecycle
 - **UI:** 15 unit tests — WHEP security, geometry, stream paths, overlay sync
 - **E2E:** 3 Playwright scenarios — camera CRUD, ROI CRUD, incident workflow
@@ -393,5 +417,6 @@ VisionOps_AI/
 - [x] User accounts, JWT, and role-based access control
 - [x] Prometheus/Grafana observability
 - [x] Notification integrations (email/webhook/Slack)
-- [ ] Retention policies and storage quotas
+- [x] Retention policies and storage quotas
+- [x] RTSP reconnect / stream resilience
 

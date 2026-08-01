@@ -16,12 +16,8 @@ import numpy as np
 from ultralytics import YOLO
 
 from export_onnx import export_onnx
-from main import (
-    ENGINE_DIR,
-    create_writer,
-    open_capture,
-    resolve_source,
-)
+from main import ENGINE_DIR, create_writer, resolve_source
+from stream_capture import RobustCapture, open_capture, parse_reconnect_args
 from alert_client import AlertClient
 from byte_tracker import ByteTrackAdapter
 from metrics_server import record_alert_posted, record_frame, start_metrics_server
@@ -199,6 +195,36 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--track-low-thresh", type=float, default=0.1)
     p.add_argument("--track-buffer", type=int, default=30)
     p.add_argument("--track-match-thresh", type=float, default=0.8)
+    p.add_argument(
+        "--rtsp-reconnect",
+        action=argparse.BooleanOptionalAction,
+        default=os.getenv("RTSP_RECONNECT", "true").lower() in {"1", "true", "yes", "on"},
+        help="Reconnect automatically when a live RTSP/HTTP stream drops",
+    )
+    p.add_argument(
+        "--rtsp-reconnect-initial",
+        type=float,
+        default=float(os.getenv("RTSP_RECONNECT_INITIAL", "1.0")),
+        help="Initial reconnect backoff seconds",
+    )
+    p.add_argument(
+        "--rtsp-reconnect-max",
+        type=float,
+        default=float(os.getenv("RTSP_RECONNECT_MAX", "30.0")),
+        help="Max reconnect backoff seconds",
+    )
+    p.add_argument(
+        "--rtsp-fail-threshold",
+        type=int,
+        default=int(os.getenv("RTSP_FAIL_THRESHOLD", "2")),
+        help="Failed reads before triggering a reconnect",
+    )
+    p.add_argument(
+        "--rtsp-open-retries",
+        type=int,
+        default=int(os.getenv("RTSP_OPEN_RETRIES", "8")),
+        help="Attempts when first opening a live stream",
+    )
     return p.parse_args()
 
 
@@ -259,7 +285,7 @@ def run(args: argparse.Namespace) -> int:
         logger.info("METRICS | Latency gain: %.2fx faster with ONNX", speedup)
         del pt_model
 
-    capture = open_capture(source)
+    capture = RobustCapture(source, **parse_reconnect_args(args))
     width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH) or 640)
     height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT) or 480)
     src_fps = float(capture.get(cv2.CAP_PROP_FPS) or 25.0)
@@ -294,9 +320,10 @@ def run(args: argparse.Namespace) -> int:
     next_roi_refresh_at = 0.0
 
     logger.info(
-        "Running ROI demo | source=%s | tracker=%s | max_frames=%d | post_alerts=%s | stream=%s (every %d) | write_mp4=%s",
+        "Running ROI demo | source=%s | tracker=%s | reconnect=%s | max_frames=%d | post_alerts=%s | stream=%s (every %d) | write_mp4=%s",
         source,
         args.tracker,
+        args.rtsp_reconnect and capture.live,
         args.max_frames,
         args.post_alerts,
         args.stream_detections,
@@ -489,11 +516,12 @@ def run(args: argparse.Namespace) -> int:
                 pass
 
     logger.info(
-        "Done. frames=%d | intrusion_frames=%d | crossings=%d | posted_alerts=%d | output=%s",
+        "Done. frames=%d | intrusion_frames=%d | crossings=%d | posted_alerts=%d | reconnects=%d | output=%s",
         frame_idx,
         intrusion_frames,
         crossing_total,
         posted_alerts,
+        capture.reconnect_count,
         args.output or "(none)",
     )
     return 0 if frame_idx > 0 else 1

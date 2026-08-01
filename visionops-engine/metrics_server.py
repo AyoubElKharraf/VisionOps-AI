@@ -27,6 +27,14 @@ ENGINE_ALERTS_POSTED = Counter(
     "visionops_engine_alerts_posted_total",
     "Alerts successfully posted to the backend",
 )
+ENGINE_STREAM_UP = Gauge(
+    "visionops_engine_stream_up",
+    "1 when the video source is currently readable, else 0",
+)
+ENGINE_RECONNECTS = Counter(
+    "visionops_engine_reconnects_total",
+    "Live stream reconnect attempts",
+)
 
 _started = False
 _lock = threading.Lock()
@@ -57,3 +65,11 @@ def record_frame(*, fps: float, infer_ms: float, detection_count: int) -> None:
 
 def record_alert_posted() -> None:
     ENGINE_ALERTS_POSTED.inc()
+
+
+def set_stream_up(up: bool) -> None:
+    ENGINE_STREAM_UP.set(1.0 if up else 0.0)
+
+
+def record_reconnect() -> None:
+    ENGINE_RECONNECTS.inc()

@@ -15,6 +15,7 @@ from app.database import SessionLocal
 from app.minio_client import upload_bytes, upload_file
 from app.models import Alert, AlertStatus
 from app.notifications import dispatch_channels
+from app.retention import run_retention
 
 logger = logging.getLogger("visionops.tasks")
 
@@ -125,6 +126,16 @@ def process_alert_media(self, alert_id: str, snapshot_b64: str | None = None) ->
         raise self.retry(exc=exc, countdown=5)
     finally:
         db.close()
+
+
+@celery_app.task(name="visionops.run_retention", bind=True, max_retries=1)
+def run_retention_task(self, dry_run: bool = False) -> dict:
+    """Periodic / on-demand retention + quota enforcement."""
+    try:
+        return run_retention(dry_run=dry_run)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("run_retention failed: %s", exc)
+        raise self.retry(exc=exc, countdown=30)
 
 
 @celery_app.task(name="visionops.dispatch_alert_notification", bind=True, max_retries=2)

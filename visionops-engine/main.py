@@ -19,6 +19,8 @@ import numpy as np
 import requests
 from ultralytics import YOLO
 
+from stream_capture import RobustCapture, open_capture, parse_reconnect_args
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s",
@@ -89,6 +91,32 @@ def parse_args() -> argparse.Namespace:
         default=os.getenv("YOLO_DEVICE", ""),
         help="Inference device for PyTorch (e.g. cpu, 0).",
     )
+    parser.add_argument(
+        "--rtsp-reconnect",
+        action=argparse.BooleanOptionalAction,
+        default=os.getenv("RTSP_RECONNECT", "true").lower() in {"1", "true", "yes", "on"},
+        help="Reconnect automatically when a live RTSP/HTTP stream drops",
+    )
+    parser.add_argument(
+        "--rtsp-reconnect-initial",
+        type=float,
+        default=float(os.getenv("RTSP_RECONNECT_INITIAL", "1.0")),
+    )
+    parser.add_argument(
+        "--rtsp-reconnect-max",
+        type=float,
+        default=float(os.getenv("RTSP_RECONNECT_MAX", "30.0")),
+    )
+    parser.add_argument(
+        "--rtsp-fail-threshold",
+        type=int,
+        default=int(os.getenv("RTSP_FAIL_THRESHOLD", "2")),
+    )
+    parser.add_argument(
+        "--rtsp-open-retries",
+        type=int,
+        default=int(os.getenv("RTSP_OPEN_RETRIES", "8")),
+    )
     return parser.parse_args()
 
 
@@ -114,26 +142,6 @@ def resolve_source(source: str) -> str:
     if source and source.strip():
         return source.strip()
     return str(ensure_demo_video())
-
-
-RTSP_LOW_LATENCY_OPTIONS = (
-    "rtsp_transport;tcp|fflags;nobuffer|flags;low_delay|reorder_queue_size;0|max_delay;0"
-)
-
-
-def open_capture(source: str) -> cv2.VideoCapture:
-    if source.startswith("rtsp://") or source.startswith("rtsps://"):
-        # Read as close to live as possible: buffered frames would timestamp
-        # detections behind the picture the browser already shows.
-        os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", RTSP_LOW_LATENCY_OPTIONS)
-        capture = cv2.VideoCapture(source, cv2.CAP_FFMPEG)
-        capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-    else:
-        capture = cv2.VideoCapture(source)
-
-    if not capture.isOpened():
-        raise RuntimeError(f"Unable to open video source: {source}")
-    return capture
 
 
 def create_writer(
@@ -232,7 +240,7 @@ def run(args: argparse.Namespace) -> int:
         logger.info("Model: %s", args.model)
         pt_model = YOLO(args.model)
 
-    capture = open_capture(source)
+    capture = RobustCapture(source, **parse_reconnect_args(args))
     width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH) or 640)
     height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT) or 480)
     src_fps = float(capture.get(cv2.CAP_PROP_FPS) or 25.0)

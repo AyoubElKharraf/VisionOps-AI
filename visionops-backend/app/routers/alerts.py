@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.auth import require_auth, require_roles
 from app.database import get_db
 from app.metrics import record_alert_created
-from app.minio_client import ensure_bucket, presigned_get_url
+from app.minio_client import ensure_bucket, presigned_get_url, delete_object
 from app.models import (
     Alert,
     AlertEvent,
@@ -183,12 +183,12 @@ def delete_alert(
     _: object = Depends(require_roles(UserRole.admin)),
     db: Session = Depends(get_db),
 ) -> None:
-    """Delete incident metadata and its event timeline.
-
-    Primarily useful for retention jobs and isolated end-to-end test cleanup.
-    Stored media is managed independently by the object-retention policy.
-    """
+    """Delete incident metadata, event timeline, and associated MinIO media."""
     alert = _get_alert(db, alert_id)
+    if alert.snapshot_object_key:
+        delete_object(alert.snapshot_object_key)
+    if alert.clip_object_key:
+        delete_object(alert.clip_object_key)
     db.delete(alert)
     db.commit()
 
