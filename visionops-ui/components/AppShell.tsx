@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   Activity,
   Bell,
+  Boxes,
   Camera,
   Hexagon,
   LayoutDashboard,
@@ -21,6 +22,7 @@ const links = [
   { href: "/monitor", label: "Live Monitor", icon: Camera },
   { href: "/roi", label: "ROI Editor", icon: Hexagon },
   { href: "/alerts", label: "Alert Gallery", icon: Bell },
+  { href: "/models", label: "Models", icon: Boxes, adminOnly: true },
   { href: "/users", label: "Users", icon: Users, adminOnly: true },
 ];
 

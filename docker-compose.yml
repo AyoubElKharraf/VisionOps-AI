@@ -270,6 +270,8 @@ services:
       ENGINE_MODE: ${ENGINE_MODE:-multi}
       VISIONOPS_PPE_MODEL: ${VISIONOPS_PPE_MODEL:-}
       PPE_EVERY: ${PPE_EVERY:-3}
+      API_URL: ${API_URL:-http://backend:8001}
+      MODEL_REGISTRY_SYNC: ${MODEL_REGISTRY_SYNC:-true}
     command: ["sh", "run_engine.sh"]
     volumes:
       - ./visionops-engine/data:/app/data

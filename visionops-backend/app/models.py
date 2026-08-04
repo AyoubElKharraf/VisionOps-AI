@@ -53,6 +53,18 @@ class UserRole(str, enum.Enum):
     operator = "operator"
 
 
+class ModelRole(str, enum.Enum):
+    """Inference slot a registered weight file can fill."""
+
+    detector = "detector"
+    ppe = "ppe"
+
+
+class ModelFormat(str, enum.Enum):
+    onnx = "onnx"
+    pytorch = "pytorch"
+
+
 class User(Base):
     """Human dashboard user authenticated via JWT."""
 
@@ -180,3 +192,28 @@ class AlertEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     alert: Mapped[Alert] = relationship(back_populates="events")
+
+
+class ModelArtifact(Base):
+    """Versioned inference weight stored in MinIO (model registry)."""
+
+    __tablename__ = "model_artifacts"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    version: Mapped[str] = mapped_column(String(64), nullable=False)
+    role: Mapped[ModelRole] = mapped_column(
+        Enum(ModelRole, name="model_role"), nullable=False, index=True
+    )
+    format: Mapped[ModelFormat] = mapped_column(
+        Enum(ModelFormat, name="model_format"), nullable=False
+    )
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    object_key: Mapped[str] = mapped_column(String(512), nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    is_active: Mapped[bool] = mapped_column(default=False, nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    activated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

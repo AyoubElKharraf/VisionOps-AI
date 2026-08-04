@@ -34,4 +34,9 @@ PY
 ln -sfn "$WEIGHTS_DIR/yolov8n.pt" /app/yolov8n.pt
 ln -sfn "$WEIGHTS_DIR/yolov8n_416.onnx" /app/yolov8n_416.onnx
 
+# Optional: overwrite YOLO_MODEL / ONNX_MODEL / VISIONOPS_PPE_MODEL from the API registry.
+if [ "${MODEL_REGISTRY_SYNC:-0}" = "1" ] || [ "${MODEL_REGISTRY_SYNC:-}" = "true" ] || [ "${MODEL_REGISTRY_SYNC:-}" = "yes" ]; then
+  python model_registry_sync.py || echo "model registry sync skipped"
+fi
+
 exec "$@"

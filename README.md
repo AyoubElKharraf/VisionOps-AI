@@ -38,6 +38,7 @@ VisionOps AI turns live camera streams into operational events. It combines low-
 - **Alert evidence** with snapshots and clips processed asynchronously and stored in MinIO, plus one-click **ZIP incident export** (media + timeline).
 - **Dual authentication**: service `X-API-Key` for the engine, JWT sessions + roles (`admin` / `operator`) for humans.
 - **Admin user management** UI at `/users` (create operators and admins).
+- **Model registry** at `/models` — upload versioned detector/PPE weights to MinIO and activate one per role (engine sync via `MODEL_REGISTRY_SYNC`).
 - **Mobile-friendly alert triage** on `/alerts` with sticky Ack/Resolve actions and filter chips.
 - **Notifications** via webhook, Slack, and/or SMTP email on lifecycle events.
 - **Retention & quotas** for MinIO media and resolved incidents (Celery Beat).
@@ -344,6 +345,7 @@ alembic revision --autogenerate -m "describe schema change"
 | Detections | `POST /api/v1/detections`, `GET /api/v1/detections/latest` |
 | Live detections | `WS /api/v1/ws/detections` |
 | Alerts | `GET/POST /api/v1/alerts`, `GET/DELETE /api/v1/alerts/{id}`, `GET /api/v1/alerts/{id}/export` (ZIP evidence pack) |
+| Models | `GET/POST /api/v1/models`, `GET /active`, `POST /{id}/activate`, `GET /{id}/download`, `DELETE /{id}` |
 | Incident workflow | `acknowledge`, `assign`, `comments`, `resolve`, `reopen`, `events` |
 
 See the interactive OpenAPI documentation at [http://127.0.0.1:8001/docs](http://127.0.0.1:8001/docs).
@@ -414,8 +416,8 @@ Latest status: [![VisionOps CI](https://github.com/AyoubElKharraf/VisionOps-AI/a
 
 Current local baseline:
 
-- **Engine:** 34 tests — ByteTrack, ROI analytics, heatmap, PPE, ONNX, RTSP reconnect, multi-cam supervisor
-- **Backend:** 40 tests — JWT/API-key auth, metrics, notifications, retention, incidents, ZIP export
+- **Engine:** 36 tests — ByteTrack, ROI analytics, heatmap, PPE, ONNX, RTSP reconnect, multi-cam supervisor, model registry sync
+- **Backend:** 42 tests — JWT/API-key auth, metrics, notifications, retention, incidents, ZIP export, model registry
 - **UI:** 15 unit tests — WHEP security, geometry, stream paths, overlay sync
 - **E2E:** 3 Playwright scenarios — camera CRUD, ROI CRUD, incident workflow (admin JWT injected)
 
@@ -501,6 +503,7 @@ VisionOps_AI/
 - [x] PPE / hard-hat must-wear zone alerts
 - [x] Incident ZIP evidence export (snapshot/clip/timeline)
 - [x] Mobile-friendly alert triage (sticky Ack/Resolve)
+- [x] Model registry & versioning (MinIO artifacts, activate per role, engine sync)
 
 ## License
 

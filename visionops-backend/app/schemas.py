@@ -8,7 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from app.models import AlertStatus, AlertType, IncidentStatus, UserRole
+from app.models import AlertStatus, AlertType, IncidentStatus, ModelFormat, ModelRole, UserRole
 
 
 class CameraCreate(BaseModel):
@@ -149,4 +149,31 @@ class AuthStatus(BaseModel):
     auth_enforced: bool
     api_key_enabled: bool
     jwt_enabled: bool
+
+
+class ModelArtifactRead(BaseModel):
+    id: uuid.UUID
+    name: str
+    version: str
+    role: ModelRole
+    format: ModelFormat
+    filename: str
+    object_key: str
+    sha256: str
+    size_bytes: int
+    is_active: bool
+    notes: str | None
+    created_by: str | None
+    created_at: datetime
+    activated_at: datetime | None
+    download_url: str | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class ModelActiveMap(BaseModel):
+    """Active weight per inference role (engine sync)."""
+
+    detector: ModelArtifactRead | None = None
+    ppe: ModelArtifactRead | None = None
 

@@ -175,6 +175,32 @@ export type DetectionFrame = {
 
 export type AuthUserRole = "admin" | "operator";
 
+export type ModelRole = "detector" | "ppe";
+export type ModelFormat = "onnx" | "pytorch";
+
+export type ModelArtifact = {
+  id: string;
+  name: string;
+  version: string;
+  role: ModelRole;
+  format: ModelFormat;
+  filename: string;
+  object_key: string;
+  sha256: string;
+  size_bytes: number;
+  is_active: boolean;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  activated_at: string | null;
+  download_url?: string | null;
+};
+
+export type ModelActiveMap = {
+  detector: ModelArtifact | null;
+  ppe: ModelArtifact | null;
+};
+
 export type AuthUserProfile = {
   id: string;
   username: string;
@@ -346,4 +372,51 @@ export const visionopsApi = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  listModels: (role?: ModelRole) => {
+    const q = role ? `?role=${encodeURIComponent(role)}` : "";
+    return api<ModelArtifact[]>(`/api/v1/models${q}`);
+  },
+  listActiveModels: () => api<ModelActiveMap>("/api/v1/models/active"),
+  activateModel: (id: string) =>
+    api<ModelArtifact>(`/api/v1/models/${id}/activate`, { method: "POST" }),
+  deleteModel: (id: string) =>
+    api<void>(`/api/v1/models/${id}`, { method: "DELETE" }),
+  uploadModel: async (input: {
+    file: File;
+    name: string;
+    version: string;
+    role: ModelRole;
+    format?: ModelFormat;
+    notes?: string;
+    activate?: boolean;
+  }) => {
+    const form = new FormData();
+    form.append("file", input.file);
+    form.append("name", input.name);
+    form.append("version", input.version);
+    form.append("role", input.role);
+    if (input.format) form.append("format", input.format);
+    if (input.notes) form.append("notes", input.notes);
+    form.append("activate", input.activate ? "true" : "false");
+
+    const headers: Record<string, string> = {};
+    const token = clientAccessToken();
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    } else if (API_KEY) {
+      headers["X-API-Key"] = API_KEY;
+    }
+
+    const res = await fetch(`${API_URL}/api/v1/models`, {
+      method: "POST",
+      headers,
+      body: form,
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`${res.status} ${text}`);
+    }
+    return res.json() as Promise<ModelArtifact>;
+  },
 };

@@ -13,7 +13,7 @@ from app.config import get_settings
 from app.database import SessionLocal, run_migrations
 from app.metrics import PrometheusMiddleware, metrics_response
 from app.minio_client import ensure_bucket
-from app.routers import alerts, auth, cameras, notifications, retention
+from app.routers import alerts, auth, cameras, models, notifications, retention
 from app.routers import stream as stream_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
@@ -39,6 +39,7 @@ app.add_middleware(
 app.include_router(auth.router, prefix=settings.api_prefix)
 app.include_router(cameras.router, prefix=settings.api_prefix)
 app.include_router(alerts.router, prefix=settings.api_prefix)
+app.include_router(models.router, prefix=settings.api_prefix)
 app.include_router(notifications.router, prefix=settings.api_prefix)
 app.include_router(retention.router, prefix=settings.api_prefix)
 app.include_router(stream_router.router, prefix=settings.api_prefix)
