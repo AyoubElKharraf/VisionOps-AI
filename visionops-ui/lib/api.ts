@@ -129,6 +129,15 @@ export type DetectionBox = {
   track_id?: number | null;
 };
 
+export type ZoneOccupancy = {
+  zone_name: string;
+  count: number;
+  max_allowed: number;
+  occupancy_pct: number;
+  over_capacity: boolean;
+  track_ids?: number[];
+};
+
 export type DetectionFrame = {
   camera_id: string | null;
   camera_name: string;
@@ -142,6 +151,7 @@ export type DetectionFrame = {
   infer_ms?: number | null;
   boxes: DetectionBox[];
   zone_alerts: string[];
+  zone_occupancy?: ZoneOccupancy[];
 };
 
 export type AuthUserRole = "admin" | "operator";
@@ -254,13 +264,15 @@ export const visionopsApi = {
     points: number[][];
     color?: string;
     camera_name?: string;
+    max_allowed_objects?: number;
+    forbidden_classes?: string[];
   }) =>
     api<RoiZone>("/api/v1/roi-zones", {
       method: "POST",
       body: JSON.stringify({
-        max_allowed_objects: 0,
-        forbidden_classes: ["person"],
         ...body,
+        max_allowed_objects: body.max_allowed_objects ?? 0,
+        forbidden_classes: body.forbidden_classes ?? ["person"],
         camera_name: body.camera_name ?? "demo-camera",
       }),
     }),

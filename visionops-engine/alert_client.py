@@ -114,6 +114,7 @@ class AlertClient:
         infer_ms: float | None = None,
         source_position_ms: float | None = None,
         zone_alerts: list[str] | None = None,
+        zone_occupancy: list[dict] | None = None,
         camera_name: str = "demo-camera",
     ) -> bool:
         """
@@ -133,6 +134,7 @@ class AlertClient:
             "infer_ms": infer_ms,
             "boxes": boxes,
             "zone_alerts": zone_alerts or [],
+            "zone_occupancy": zone_occupancy or [],
         }
         self._det_future = self._pool.submit(self._post_detections, payload)
         return True

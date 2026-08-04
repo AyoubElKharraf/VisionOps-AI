@@ -205,18 +205,42 @@ export function VideoMonitor({
       for (const zone of zones) {
         if (!zone.points?.length) continue;
         ctx.beginPath();
+        let labelX = 0;
+        let labelY = Infinity;
         zone.points.forEach(([x, y], i) => {
           const normalized = x >= 0 && x <= 1 && y >= 0 && y <= 1;
           const point = projectVideoPoint(x, y, videoRect, normalized);
           if (i === 0) ctx.moveTo(point.x, point.y);
           else ctx.lineTo(point.x, point.y);
+          labelX += point.x;
+          labelY = Math.min(labelY, point.y);
         });
         ctx.closePath();
-        ctx.fillStyle = "rgba(239, 68, 68, 0.18)";
-        ctx.strokeStyle = zone.color || "#ef4444";
+        const occ = frame?.zone_occupancy?.find((z) => z.zone_name === zone.name);
+        const overflow = Boolean(occ?.over_capacity);
+        ctx.fillStyle = overflow ? "rgba(239, 68, 68, 0.28)" : "rgba(239, 68, 68, 0.18)";
+        ctx.strokeStyle = overflow ? "#f87171" : zone.color || "#ef4444";
         ctx.lineWidth = 2;
         ctx.fill();
         ctx.stroke();
+
+        const n = zone.points.length || 1;
+        labelX /= n;
+        const cap = occ?.max_allowed ?? zone.max_allowed_objects ?? 0;
+        const count = occ?.count ?? 0;
+        const pct = occ?.occupancy_pct;
+        const label =
+          cap > 0
+            ? `${zone.name} · ${count}/${cap}${pct != null ? ` · ${Math.round(pct)}%` : ""}`
+            : `${zone.name}${occ ? ` · ${count}` : ""}`;
+        ctx.font = "bold 12px Segoe UI, sans-serif";
+        const tw = ctx.measureText(label).width + 10;
+        const lx = Math.max(4, labelX - tw / 2);
+        const ly = Math.max(16, labelY - 8);
+        ctx.fillStyle = overflow ? "rgba(239, 68, 68, 0.92)" : "rgba(15, 23, 42, 0.82)";
+        ctx.fillRect(lx, ly - 14, tw, 18);
+        ctx.fillStyle = "#f8fafc";
+        ctx.fillText(label, lx + 5, ly);
       }
 
       if (frame?.boxes?.length) {

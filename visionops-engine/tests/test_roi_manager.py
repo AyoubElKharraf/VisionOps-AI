@@ -44,6 +44,7 @@ def test_intrusion_when_foot_inside_zone():
     alerts = engine.check_zone_intrusion([det])
     assert len(alerts) == 1
     assert alerts[0].zone_name == "restricted"
+    assert alerts[0].reason == "intrusion"
     assert "Intrusion" in alerts[0].message
 
 
@@ -62,6 +63,65 @@ def test_no_intrusion_outside_zone():
     )
     assert engine.check_zone_intrusion([det]) == []
 
+
+def test_occupancy_counts_unique_person_tracks():
+    engine = ROIEngine()
+    engine.add_zone(
+        ZoneROI(
+            name="lobby",
+            points=[(0, 0), (300, 0), (300, 300), (0, 300)],
+            max_allowed_objects=2,
+            forbidden_classes=[],
+        )
+    )
+    dets = [
+        Detection(
+            track_id=1, x1=10, y1=10, x2=40, y2=80, confidence=0.9, class_id=0, class_name="person"
+        ),
+        Detection(
+            track_id=1, x1=12, y1=12, x2=42, y2=82, confidence=0.9, class_id=0, class_name="person"
+        ),
+        Detection(
+            track_id=2, x1=100, y1=20, x2=140, y2=100, confidence=0.9, class_id=0, class_name="person"
+        ),
+        Detection(
+            track_id=3, x1=50, y1=50, x2=90, y2=90, confidence=0.8, class_id=2, class_name="car"
+        ),
+    ]
+    occ = engine.zone_occupancy(dets)
+    assert len(occ) == 1
+    assert occ[0].count == 2
+    assert occ[0].max_allowed == 2
+    assert occ[0].occupancy_pct == pytest.approx(100.0)
+    assert occ[0].over_capacity is False
+    assert engine.check_zone_intrusion(dets) == []
+
+
+def test_over_capacity_alert_without_intrusion():
+    engine = ROIEngine()
+    engine.add_zone(
+        ZoneROI(
+            name="elevator",
+            points=[(0, 0), (200, 0), (200, 200), (0, 200)],
+            max_allowed_objects=1,
+            forbidden_classes=[],
+        )
+    )
+    dets = [
+        Detection(
+            track_id=7, x1=20, y1=20, x2=50, y2=100, confidence=0.9, class_id=0, class_name="person"
+        ),
+        Detection(
+            track_id=8, x1=80, y1=20, x2=110, y2=100, confidence=0.9, class_id=0, class_name="person"
+        ),
+    ]
+    alerts = engine.check_zone_intrusion(dets)
+    assert len(alerts) == 1
+    assert alerts[0].reason == "over_capacity"
+    assert alerts[0].object_count == 2
+    assert alerts[0].max_allowed == 1
+    assert "CAPACITÉ" in alerts[0].message
+    assert engine.zone_occupancy(dets)[0].over_capacity is True
 
 def test_tripwire_crossing_detected():
     engine = ROIEngine(history_len=10)

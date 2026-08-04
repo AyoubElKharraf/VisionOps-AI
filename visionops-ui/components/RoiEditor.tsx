@@ -17,6 +17,8 @@ export function RoiEditor({
   const [points, setPoints] = useState<Point[]>([]);
   const [zones, setZones] = useState<RoiZone[]>([]);
   const [name, setName] = useState("zone_restreinte");
+  const [mode, setMode] = useState<"intrusion" | "occupancy">("intrusion");
+  const [capacity, setCapacity] = useState(5);
   const [status, setStatus] = useState<string>("");
   const [size, setSize] = useState({ w: 640, h: 360 });
 
@@ -90,8 +92,10 @@ export function RoiEditor({
       await visionopsApi.createZone({
         name,
         points: normalized,
-        color: "#ef4444",
+        color: mode === "occupancy" ? "#f59e0b" : "#ef4444",
         camera_name: cameraName,
+        max_allowed_objects: mode === "occupancy" ? Math.max(1, capacity) : 0,
+        forbidden_classes: mode === "occupancy" ? [] : ["person"],
       });
       setPoints([]);
       setStatus("Zone saved");
@@ -128,6 +132,31 @@ export function RoiEditor({
             className="mt-1 w-full rounded-md border border-white/10 bg-ink px-3 py-2 text-white outline-none focus:border-accent"
           />
         </label>
+        <label className="block text-sm">
+          Rule mode
+          <select
+            value={mode}
+            onChange={(e) =>
+              setMode(e.target.value === "occupancy" ? "occupancy" : "intrusion")
+            }
+            className="mt-1 w-full rounded-md border border-white/10 bg-ink px-3 py-2 text-white outline-none focus:border-accent"
+          >
+            <option value="intrusion">Intrusion (any person)</option>
+            <option value="occupancy">Occupancy (capacity)</option>
+          </select>
+        </label>
+        {mode === "occupancy" && (
+          <label className="block text-sm">
+            Capacity (max people)
+            <input
+              type="number"
+              min={1}
+              value={capacity}
+              onChange={(e) => setCapacity(Math.max(1, Number(e.target.value) || 1))}
+              className="mt-1 w-full rounded-md border border-white/10 bg-ink px-3 py-2 text-white outline-none focus:border-accent"
+            />
+          </label>
+        )}
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
@@ -156,7 +185,14 @@ export function RoiEditor({
               key={z.id}
               className="flex items-center justify-between rounded-md border border-white/10 px-3 py-2 text-sm"
             >
-              <span>{z.name}</span>
+              <span>
+                {z.name}
+                <span className="ml-2 text-xs text-muted">
+                  {z.max_allowed_objects > 0
+                    ? `cap ${z.max_allowed_objects}`
+                    : "intrusion"}
+                </span>
+              </span>
               <button
                 type="button"
                 onClick={() => void remove(z.id)}

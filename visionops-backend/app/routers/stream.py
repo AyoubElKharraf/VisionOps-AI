@@ -57,6 +57,15 @@ class DetectionBox(BaseModel):
     track_id: int | None = None
 
 
+class ZoneOccupancySnapshot(BaseModel):
+    zone_name: str
+    count: int = 0
+    max_allowed: int = 0
+    occupancy_pct: float = 0.0
+    over_capacity: bool = False
+    track_ids: list[int] = Field(default_factory=list)
+
+
 class DetectionFrame(BaseModel):
     camera_id: uuid.UUID | None = None
     camera_name: str = "demo-camera"
@@ -69,6 +78,7 @@ class DetectionFrame(BaseModel):
     infer_ms: float | None = None
     boxes: list[DetectionBox] = Field(default_factory=list)
     zone_alerts: list[str] = Field(default_factory=list)
+    zone_occupancy: list[ZoneOccupancySnapshot] = Field(default_factory=list)
 
 
 def _resolve_camera_id(db: Session, camera_id: uuid.UUID | None, camera_name: str | None) -> uuid.UUID | None:

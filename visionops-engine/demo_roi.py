@@ -366,6 +366,7 @@ def run(args: argparse.Namespace) -> int:
                 detections = roi.assign_tracks(detections)
 
             alerts = roi.check_zone_intrusion(detections)
+            occupancy = roi.zone_occupancy(detections)
             crossings = roi.check_line_crossings(detections)
 
             if (
@@ -396,6 +397,7 @@ def run(args: argparse.Namespace) -> int:
                     infer_ms=infer_ms,
                     source_position_ms=source_position_ms,
                     zone_alerts=[a.message for a in alerts],
+                    zone_occupancy=[o.model_dump() for o in occupancy],
                     camera_name=args.camera_name,
                 )
 
@@ -404,7 +406,7 @@ def run(args: argparse.Namespace) -> int:
                 for a in alerts:
                     logger.warning("%s | infer=%.1fms", a.message, infer_ms)
                     if alert_client is not None and args.post_alerts:
-                        key = f"roi:{a.zone_name}"
+                        key = f"roi:{a.zone_name}:{a.reason}"
                         if frame_idx - last_posted.get(key, -10_000) >= args.alert_cooldown:
                             alert_client.create_alert(
                                 alert_type="roi_intrusion",
@@ -415,7 +417,13 @@ def run(args: argparse.Namespace) -> int:
                                 source_video_path=source,
                                 frame_index=frame_idx,
                                 snapshot_frame=frame,
-                                metadata={"object_count": a.object_count, "infer_ms": infer_ms},
+                                metadata={
+                                    "reason": a.reason,
+                                    "object_count": a.object_count,
+                                    "max_allowed": a.max_allowed,
+                                    "occupancy_pct": a.occupancy_pct,
+                                    "infer_ms": infer_ms,
+                                },
                             )
                             posted_alerts += 1
                             record_alert_posted()

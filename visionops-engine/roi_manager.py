@@ -91,6 +91,19 @@ class ZoneAlert(BaseModel):
     max_allowed: int
     offending_classes: list[str]
     message: str
+    reason: str = "intrusion"  # intrusion | over_capacity
+    occupancy_pct: float = 0.0
+
+
+class ZoneOccupancy(BaseModel):
+    """Live person occupancy for one ROI polygon."""
+
+    zone_name: str
+    count: int
+    max_allowed: int
+    occupancy_pct: float
+    over_capacity: bool
+    track_ids: list[int] = Field(default_factory=list)
 
 
 class CrossingEvent(BaseModel):
@@ -176,6 +189,84 @@ class ROIEngine:
             self._trajectories[det.track_id].append(center)
         self._prev_centers = active
 
+    def _detections_inside(
+        self,
+        zone: ZoneROI,
+        detections: Iterable[Detection],
+        *,
+        use_foot_point: bool = True,
+        use_bbox_intersection: bool = True,
+    ) -> list[Detection]:
+        poly = zone.to_polygon()
+        inside: list[Detection] = []
+        for det in detections:
+            foot = Point(det.foot_point if use_foot_point else det.center)
+            intersects = False
+            if use_foot_point and poly.contains(foot):
+                intersects = True
+            elif use_bbox_intersection and poly.intersects(det.as_polygon()):
+                intersects = True
+            if intersects:
+                inside.append(det)
+        return inside
+
+    @staticmethod
+    def _person_track_ids(inside: Iterable[Detection]) -> list[int]:
+        """Unique person identities inside a zone (prefer ByteTrack ids)."""
+        seen: set[int] = set()
+        ordered: list[int] = []
+        anon = -1
+        for det in inside:
+            if det.class_name != "person":
+                continue
+            if det.track_id is not None:
+                tid = int(det.track_id)
+            else:
+                tid = anon
+                anon -= 1
+            if tid in seen:
+                continue
+            seen.add(tid)
+            ordered.append(tid)
+        return ordered
+
+    @staticmethod
+    def _occupancy_pct(count: int, max_allowed: int) -> float:
+        if max_allowed > 0:
+            return round(100.0 * count / max_allowed, 1)
+        return 100.0 if count > 0 else 0.0
+
+    def zone_occupancy(
+        self,
+        detections: Iterable[Detection],
+        *,
+        use_foot_point: bool = True,
+        use_bbox_intersection: bool = True,
+    ) -> list[ZoneOccupancy]:
+        dets = list(detections)
+        snapshots: list[ZoneOccupancy] = []
+        for zone in self.zones:
+            inside = self._detections_inside(
+                zone,
+                dets,
+                use_foot_point=use_foot_point,
+                use_bbox_intersection=use_bbox_intersection,
+            )
+            track_ids = self._person_track_ids(inside)
+            count = len(track_ids)
+            max_allowed = zone.max_allowed_objects
+            snapshots.append(
+                ZoneOccupancy(
+                    zone_name=zone.name,
+                    count=count,
+                    max_allowed=max_allowed,
+                    occupancy_pct=self._occupancy_pct(count, max_allowed),
+                    over_capacity=max_allowed > 0 and count > max_allowed,
+                    track_ids=track_ids,
+                )
+            )
+        return snapshots
+
     def check_zone_intrusion(
         self,
         detections: Iterable[Detection],
@@ -183,40 +274,60 @@ class ROIEngine:
         use_foot_point: bool = True,
         use_bbox_intersection: bool = True,
     ) -> list[ZoneAlert]:
+        """
+        Emit alerts for forbidden-class intrusion and/or over-capacity.
+
+        Occupancy mode: max_allowed_objects > 0 and empty forbidden_classes.
+        Intrusion mode: forbidden_classes lists banned labels (classic max=0).
+        """
         alerts: list[ZoneAlert] = []
         dets = list(detections)
 
         for zone in self.zones:
-            poly = zone.to_polygon()
-            inside: list[Detection] = []
-            for det in dets:
-                foot = Point(det.foot_point if use_foot_point else det.center)
-                intersects = False
-                if use_foot_point and poly.contains(foot):
-                    intersects = True
-                elif use_bbox_intersection and poly.intersects(det.as_polygon()):
-                    intersects = True
-                if intersects:
-                    inside.append(det)
+            inside = self._detections_inside(
+                zone,
+                dets,
+                use_foot_point=use_foot_point,
+                use_bbox_intersection=use_bbox_intersection,
+            )
+            track_ids = self._person_track_ids(inside)
+            person_count = len(track_ids)
+            max_allowed = zone.max_allowed_objects
+            pct = self._occupancy_pct(person_count, max_allowed)
 
-            offending = [
-                d.class_name
-                for d in inside
-                if not zone.forbidden_classes or d.class_name in zone.forbidden_classes
-            ]
-            count = len(inside)
-            forbidden_hit = any(
-                d.class_name in zone.forbidden_classes for d in inside
-            ) if zone.forbidden_classes else count > 0
+            forbidden = zone.forbidden_classes or []
+            forbidden_hit = any(d.class_name in forbidden for d in inside)
+            over_capacity = max_allowed > 0 and person_count > max_allowed
 
-            if count > zone.max_allowed_objects or forbidden_hit:
+            if over_capacity:
                 alerts.append(
                     ZoneAlert(
                         zone_name=zone.name,
-                        object_count=count,
-                        max_allowed=zone.max_allowed_objects,
-                        offending_classes=sorted(set(offending)),
-                        message=f"ALERTE ROI : Intrusion détectée ! [{zone.name}] count={count}",
+                        object_count=person_count,
+                        max_allowed=max_allowed,
+                        offending_classes=["person"],
+                        reason="over_capacity",
+                        occupancy_pct=pct,
+                        message=(
+                            f"ALERTE CAPACITÉ : [{zone.name}] {person_count}/{max_allowed} "
+                            f"({pct:.0f}%)"
+                        ),
+                    )
+                )
+            elif forbidden_hit:
+                offending = sorted({d.class_name for d in inside if d.class_name in forbidden})
+                alerts.append(
+                    ZoneAlert(
+                        zone_name=zone.name,
+                        object_count=person_count if "person" in forbidden else len(inside),
+                        max_allowed=max_allowed,
+                        offending_classes=offending,
+                        reason="intrusion",
+                        occupancy_pct=pct,
+                        message=(
+                            f"ALERTE ROI : Intrusion détectée ! [{zone.name}] "
+                            f"count={person_count if 'person' in forbidden else len(inside)}"
+                        ),
                     )
                 )
         return alerts
