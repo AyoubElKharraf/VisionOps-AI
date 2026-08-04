@@ -17,9 +17,15 @@ def test_alembic_heads_include_initial_revision():
     cfg.set_main_option("script_location", str(BACKEND_DIR / "alembic"))
     script = ScriptDirectory.from_config(cfg)
     revisions = {rev.revision for rev in script.walk_revisions()}
-    assert "0001_initial_schema" in revisions
-    assert "0002_users_auth" in revisions
-    assert script.get_heads() == ["0002_users_auth"]
+    assert {
+        "0001_initial_schema",
+        "0002_users_auth",
+        "0003_roi_loitering",
+        "0004_roi_schedule",
+        "0005_roi_ppe",
+        "0006_model_registry",
+    }.issubset(revisions)
+    assert script.get_heads() == ["0006_model_registry"]
 
 
 def test_run_migrations_helper_is_importable():
