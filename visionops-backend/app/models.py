@@ -102,6 +102,11 @@ class RoiZone(Base):
     max_allowed_objects: Mapped[int] = mapped_column(Integer, default=0)
     forbidden_classes: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     loitering_seconds: Mapped[int] = mapped_column(Integer, default=0)
+    schedule_enabled: Mapped[bool] = mapped_column(default=False)
+    schedule_start: Mapped[str] = mapped_column(String(5), default="00:00")
+    schedule_end: Mapped[str] = mapped_column(String(5), default="23:59")
+    schedule_days: Mapped[list] = mapped_column(JSONB, default=lambda: [0, 1, 2, 3, 4, 5, 6])
+    schedule_timezone: Mapped[str] = mapped_column(String(64), default="UTC")
     is_active: Mapped[bool] = mapped_column(default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

@@ -17,9 +17,11 @@ from roi_manager import (  # noqa: E402
     TripwireLine,
     ZoneROI,
     detections_from_array,
+    is_within_schedule,
     zones_from_api,
 )
 import numpy as np
+from datetime import datetime, timezone
 
 
 def test_zone_requires_three_points():
@@ -173,6 +175,49 @@ def test_zones_from_api_reads_loitering_seconds():
     )
     assert len(zones) == 1
     assert zones[0].loitering_seconds == 30
+
+
+def test_schedule_always_active_when_disabled():
+    zone = ZoneROI(
+        name="dock",
+        points=[(0, 0), (10, 0), (10, 10), (0, 10)],
+        schedule_enabled=False,
+        schedule_start="22:00",
+        schedule_end="06:00",
+        schedule_days=[0],
+    )
+    noon = datetime(2026, 8, 3, 12, 0, tzinfo=timezone.utc)  # Monday
+    assert is_within_schedule(zone, noon) is True
+
+
+def test_schedule_overnight_window_and_day_filter():
+    zone = ZoneROI(
+        name="night",
+        points=[(0, 0), (10, 0), (10, 10), (0, 10)],
+        forbidden_classes=["person"],
+        schedule_enabled=True,
+        schedule_start="22:00",
+        schedule_end="06:00",
+        schedule_days=[0, 1, 2, 3, 4],  # Mon-Fri
+        schedule_timezone="UTC",
+    )
+    monday_night = datetime(2026, 8, 3, 23, 0, tzinfo=timezone.utc)
+    monday_noon = datetime(2026, 8, 3, 12, 0, tzinfo=timezone.utc)
+    saturday_night = datetime(2026, 8, 8, 23, 0, tzinfo=timezone.utc)
+    assert is_within_schedule(zone, monday_night) is True
+    assert is_within_schedule(zone, monday_noon) is False
+    assert is_within_schedule(zone, saturday_night) is False
+
+    engine = ROIEngine()
+    engine.add_zone(zone)
+    det = Detection(
+        track_id=1, x1=1, y1=1, x2=4, y2=8, confidence=0.9, class_id=0, class_name="person"
+    )
+    assert engine.check_zone_intrusion([det], wall_clock=monday_night)
+    assert engine.check_zone_intrusion([det], wall_clock=monday_noon) == []
+    occ = engine.zone_occupancy([det], wall_clock=monday_noon)
+    assert occ[0].schedule_active is False
+    assert occ[0].count == 1
 def test_tripwire_crossing_detected():
     engine = ROIEngine(history_len=10)
     engine.add_tripwire(

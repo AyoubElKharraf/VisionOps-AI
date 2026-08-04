@@ -31,6 +31,11 @@ class RoiZoneCreate(BaseModel):
     max_allowed_objects: int = 0
     forbidden_classes: list[str] | None = ["person"]
     loitering_seconds: int = Field(default=0, ge=0)
+    schedule_enabled: bool = False
+    schedule_start: str = Field(default="00:00", pattern=r"^\d{2}:\d{2}$")
+    schedule_end: str = Field(default="23:59", pattern=r"^\d{2}:\d{2}$")
+    schedule_days: list[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4, 5, 6])
+    schedule_timezone: str = Field(default="UTC", min_length=1, max_length=64)
     is_active: bool = True
 
 
@@ -43,6 +48,11 @@ class RoiZoneRead(BaseModel):
     max_allowed_objects: int
     forbidden_classes: list[str] | None
     loitering_seconds: int = 0
+    schedule_enabled: bool = False
+    schedule_start: str = "00:00"
+    schedule_end: str = "23:59"
+    schedule_days: list[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4, 5, 6])
+    schedule_timezone: str = "UTC"
     is_active: bool
 
     model_config = {"from_attributes": True}
@@ -69,6 +79,7 @@ class ZoneOccupancySnapshot(BaseModel):
     loitering_seconds: int = 0
     max_dwell_seconds: float = 0.0
     loitering_active: bool = False
+    schedule_active: bool = True
 
 
 class DetectionFrame(BaseModel):
@@ -123,6 +134,11 @@ def create_zone(payload: RoiZoneCreate, db: Session = Depends(get_db)) -> RoiZon
         max_allowed_objects=payload.max_allowed_objects,
         forbidden_classes=payload.forbidden_classes,
         loitering_seconds=payload.loitering_seconds,
+        schedule_enabled=payload.schedule_enabled,
+        schedule_start=payload.schedule_start,
+        schedule_end=payload.schedule_end,
+        schedule_days=payload.schedule_days,
+        schedule_timezone=payload.schedule_timezone,
         is_active=payload.is_active,
     )
     db.add(zone)

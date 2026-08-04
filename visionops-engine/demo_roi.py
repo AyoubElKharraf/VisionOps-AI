@@ -10,6 +10,7 @@ import os
 import sys
 import time
 from collections import deque
+from datetime import datetime, timezone
 
 import cv2
 import numpy as np
@@ -365,9 +366,10 @@ def run(args: argparse.Namespace) -> int:
             else:
                 detections = roi.assign_tracks(detections)
 
-            alerts = roi.check_zone_intrusion(detections)
-            loiters = roi.check_loitering(detections, now=time.monotonic())
-            occupancy = roi.zone_occupancy(detections, now=time.monotonic())
+            wall = datetime.now(timezone.utc)
+            alerts = roi.check_zone_intrusion(detections, wall_clock=wall)
+            loiters = roi.check_loitering(detections, now=time.monotonic(), wall_clock=wall)
+            occupancy = roi.zone_occupancy(detections, now=time.monotonic(), wall_clock=wall)
             crossings = roi.check_line_crossings(detections)
 
             if (

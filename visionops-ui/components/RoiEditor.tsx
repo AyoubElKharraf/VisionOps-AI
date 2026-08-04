@@ -22,8 +22,26 @@ export function RoiEditor({
   );
   const [capacity, setCapacity] = useState(5);
   const [loiterSeconds, setLoiterSeconds] = useState(15);
+  const [scheduleEnabled, setScheduleEnabled] = useState(false);
+  const [scheduleStart, setScheduleStart] = useState("22:00");
+  const [scheduleEnd, setScheduleEnd] = useState("06:00");
+  const [scheduleDays, setScheduleDays] = useState<number[]>([
+    0, 1, 2, 3, 4, 5, 6,
+  ]);
   const [status, setStatus] = useState<string>("");
   const [size, setSize] = useState({ w: 640, h: 360 });
+
+  const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
+
+  const toggleDay = (day: number) => {
+    setScheduleDays((prev) => {
+      if (prev.includes(day)) {
+        const next = prev.filter((d) => d !== day);
+        return next.length ? next : prev;
+      }
+      return [...prev, day].sort((a, b) => a - b);
+    });
+  };
 
   const reload = async () => {
     try {
@@ -104,6 +122,11 @@ export function RoiEditor({
           mode === "occupancy" || mode === "loitering" ? [] : ["person"],
         loitering_seconds:
           mode === "loitering" ? Math.max(1, loiterSeconds) : 0,
+        schedule_enabled: scheduleEnabled,
+        schedule_start: scheduleStart,
+        schedule_end: scheduleEnd,
+        schedule_days: scheduleDays,
+        schedule_timezone: "UTC",
       });
       setPoints([]);
       setStatus("Zone saved");
@@ -182,6 +205,61 @@ export function RoiEditor({
             />
           </label>
         )}
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={scheduleEnabled}
+            onChange={(e) => setScheduleEnabled(e.target.checked)}
+            className="rounded border-white/20"
+          />
+          Limit rules to a schedule
+        </label>
+        {scheduleEnabled && (
+          <div className="space-y-3 rounded-md border border-white/10 p-3">
+            <div className="grid grid-cols-2 gap-2">
+              <label className="block text-xs text-muted">
+                Start (UTC)
+                <input
+                  type="time"
+                  value={scheduleStart}
+                  onChange={(e) => setScheduleStart(e.target.value)}
+                  className="mt-1 w-full rounded-md border border-white/10 bg-ink px-2 py-1.5 text-sm text-white"
+                />
+              </label>
+              <label className="block text-xs text-muted">
+                End (UTC)
+                <input
+                  type="time"
+                  value={scheduleEnd}
+                  onChange={(e) => setScheduleEnd(e.target.value)}
+                  className="mt-1 w-full rounded-md border border-white/10 bg-ink px-2 py-1.5 text-sm text-white"
+                />
+              </label>
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {DAY_LABELS.map((label, day) => {
+                const on = scheduleDays.includes(day);
+                return (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => toggleDay(day)}
+                    className={
+                      on
+                        ? "rounded px-2 py-1 text-xs bg-accent text-ink"
+                        : "rounded px-2 py-1 text-xs border border-white/15 text-muted"
+                    }
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-[11px] text-muted">
+              Overnight windows supported (e.g. 22:00 → 06:00). Days: Mon=0.
+            </p>
+          </div>
+        )}
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
@@ -218,6 +296,9 @@ export function RoiEditor({
                     : z.max_allowed_objects > 0
                       ? `cap ${z.max_allowed_objects}`
                       : "intrusion"}
+                  {z.schedule_enabled
+                    ? ` · ${z.schedule_start}-${z.schedule_end}`
+                    : ""}
                 </span>
               </span>
               <button

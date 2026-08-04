@@ -32,6 +32,7 @@ VisionOps AI turns live camera streams into operational events. It combines low-
 - **Spatial analytics** with normalized polygon ROI zones, directional tripwires, and **live occupancy** (`count / capacity` + %).
 - **Capacity alerts** when person tracks exceed a zone’s max, separate from classic intrusion (`forbidden_classes`).
 - **Loitering / dwell-time** alerts when a tracked person stays in a zone beyond a configured threshold.
+- **Scheduled ROI rules** with optional UTC windows and weekday filters (overnight ranges supported).
 - **Incident lifecycle**: open, acknowledge, assign, comment, resolve, reopen, and immutable event history.
 - **Alert evidence** with snapshots and clips processed asynchronously and stored in MinIO.
 - **Dual authentication**: service `X-API-Key` for the engine, JWT sessions + roles (`admin` / `operator`) for humans.
@@ -62,7 +63,7 @@ Register RTSP/HLS sources, edit metadata, disable cameras, and derive the MediaM
 
 ### ROI Polygon Editor
 
-Draw resolution-independent intrusion, occupancy, or loitering zones. Occupancy mode sets a capacity (max people); loitering mode sets a dwell threshold in seconds. The Live Monitor shows `count / capacity` or `dwell Xs/Ys` and raises incidents when limits are exceeded. Coordinates are normalized before persistence and synchronized back to the inference engine.
+Draw resolution-independent intrusion, occupancy, or loitering zones. Occupancy mode sets a capacity (max people); loitering mode sets a dwell threshold in seconds. Optionally limit enforcement to a UTC schedule (days + start/end, including overnight). The Live Monitor shows `count / capacity`, `dwell Xs/Ys`, or `off-schedule`, and raises incidents when limits are exceeded. Coordinates are normalized before persistence and synchronized back to the inference engine.
 
 <p align="center">
   <img src="docs/screenshots/roi-editor.png" alt="ROI polygon editor" width="100%">
@@ -411,7 +412,7 @@ Latest status: [![VisionOps CI](https://github.com/AyoubElKharraf/VisionOps-AI/a
 
 Current local baseline:
 
-- **Engine:** 27 tests — ByteTrack, ROI/tripwire/occupancy/loitering, ONNX, RTSP reconnect, multi-cam supervisor
+- **Engine:** 29 tests — ByteTrack, ROI/tripwire/occupancy/loitering/schedules, ONNX, RTSP reconnect, multi-cam supervisor
 - **Backend:** 39 tests — JWT/API-key auth, metrics, notifications, retention, cameras/alerts lifecycle
 - **UI:** 15 unit tests — WHEP security, geometry, stream paths, overlay sync
 - **E2E:** 3 Playwright scenarios — camera CRUD, ROI CRUD, incident workflow (admin JWT injected)
@@ -493,6 +494,7 @@ VisionOps_AI/
 - [x] Multi-camera engine scaling (one worker per camera)
 - [x] Zone occupancy counting (`count/capacity`, over-capacity alerts)
 - [x] Loitering / dwell-time zone alerts
+- [x] Scheduled ROI rule windows (UTC hours + weekdays)
 
 ## License
 

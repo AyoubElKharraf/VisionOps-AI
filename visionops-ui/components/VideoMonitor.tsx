@@ -219,19 +219,26 @@ export function VideoMonitor({
         const occ = frame?.zone_occupancy?.find((z) => z.zone_name === zone.name);
         const overflow = Boolean(occ?.over_capacity);
         const loitering = Boolean(occ?.loitering_active);
-        ctx.fillStyle = loitering
-          ? "rgba(167, 139, 250, 0.28)"
-          : overflow
-            ? "rgba(239, 68, 68, 0.28)"
-            : "rgba(239, 68, 68, 0.18)";
-        ctx.strokeStyle = loitering
-          ? "#a78bfa"
-          : overflow
-            ? "#f87171"
-            : zone.color || "#ef4444";
+        const scheduleOff = occ?.schedule_active === false;
+        ctx.fillStyle = scheduleOff
+          ? "rgba(148, 163, 184, 0.12)"
+          : loitering
+            ? "rgba(167, 139, 250, 0.28)"
+            : overflow
+              ? "rgba(239, 68, 68, 0.28)"
+              : "rgba(239, 68, 68, 0.18)";
+        ctx.strokeStyle = scheduleOff
+          ? "#94a3b8"
+          : loitering
+            ? "#a78bfa"
+            : overflow
+              ? "#f87171"
+              : zone.color || "#ef4444";
         ctx.lineWidth = 2;
+        ctx.setLineDash(scheduleOff ? [6, 4] : []);
         ctx.fill();
         ctx.stroke();
+        ctx.setLineDash([]);
 
         const n = zone.points.length || 1;
         labelX /= n;
@@ -242,7 +249,9 @@ export function VideoMonitor({
           occ?.loitering_seconds ?? zone.loitering_seconds ?? 0;
         const dwell = occ?.max_dwell_seconds ?? 0;
         let label = zone.name;
-        if (cap > 0) {
+        if (scheduleOff) {
+          label = `${zone.name} · off-schedule`;
+        } else if (cap > 0) {
           label = `${zone.name} · ${count}/${cap}${pct != null ? ` · ${Math.round(pct)}%` : ""}`;
         } else if (loiterThresh > 0) {
           label = `${zone.name} · dwell ${Math.round(dwell)}s/${loiterThresh}s`;
@@ -253,11 +262,13 @@ export function VideoMonitor({
         const tw = ctx.measureText(label).width + 10;
         const lx = Math.max(4, labelX - tw / 2);
         const ly = Math.max(16, labelY - 8);
-        ctx.fillStyle = loitering
-          ? "rgba(109, 40, 217, 0.92)"
-          : overflow
-            ? "rgba(239, 68, 68, 0.92)"
-            : "rgba(15, 23, 42, 0.82)";
+        ctx.fillStyle = scheduleOff
+          ? "rgba(71, 85, 105, 0.92)"
+          : loitering
+            ? "rgba(109, 40, 217, 0.92)"
+            : overflow
+              ? "rgba(239, 68, 68, 0.92)"
+              : "rgba(15, 23, 42, 0.82)";
         ctx.fillRect(lx, ly - 14, tw, 18);
         ctx.fillStyle = "#f8fafc";
         ctx.fillText(label, lx + 5, ly);

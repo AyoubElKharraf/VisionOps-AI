@@ -116,6 +116,11 @@ export type RoiZone = {
   max_allowed_objects: number;
   forbidden_classes: string[] | null;
   loitering_seconds?: number;
+  schedule_enabled?: boolean;
+  schedule_start?: string;
+  schedule_end?: string;
+  schedule_days?: number[];
+  schedule_timezone?: string;
   is_active: boolean;
 };
 
@@ -140,6 +145,7 @@ export type ZoneOccupancy = {
   loitering_seconds?: number;
   max_dwell_seconds?: number;
   loitering_active?: boolean;
+  schedule_active?: boolean;
 };
 
 export type DetectionFrame = {
@@ -271,6 +277,11 @@ export const visionopsApi = {
     max_allowed_objects?: number;
     forbidden_classes?: string[];
     loitering_seconds?: number;
+    schedule_enabled?: boolean;
+    schedule_start?: string;
+    schedule_end?: string;
+    schedule_days?: number[];
+    schedule_timezone?: string;
   }) =>
     api<RoiZone>("/api/v1/roi-zones", {
       method: "POST",
@@ -279,6 +290,11 @@ export const visionopsApi = {
         max_allowed_objects: body.max_allowed_objects ?? 0,
         forbidden_classes: body.forbidden_classes ?? ["person"],
         loitering_seconds: body.loitering_seconds ?? 0,
+        schedule_enabled: body.schedule_enabled ?? false,
+        schedule_start: body.schedule_start ?? "00:00",
+        schedule_end: body.schedule_end ?? "23:59",
+        schedule_days: body.schedule_days ?? [0, 1, 2, 3, 4, 5, 6],
+        schedule_timezone: body.schedule_timezone ?? "UTC",
         camera_name: body.camera_name ?? "demo-camera",
       }),
     }),

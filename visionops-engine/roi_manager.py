@@ -7,8 +7,10 @@ Uses Shapely for polygon intrusion and line-crossing detection.
 from __future__ import annotations
 
 from collections import defaultdict, deque
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Iterable
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import numpy as np
 from pydantic import BaseModel, Field, field_validator
@@ -30,6 +32,11 @@ class ZoneROI(BaseModel):
     max_allowed_objects: int = Field(default=0, ge=0)
     forbidden_classes: list[str] = Field(default_factory=lambda: ["person"])
     loitering_seconds: int = Field(default=0, ge=0)
+    schedule_enabled: bool = False
+    schedule_start: str = "00:00"
+    schedule_end: str = "23:59"
+    schedule_days: list[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4, 5, 6])
+    schedule_timezone: str = "UTC"
 
     @field_validator("points")
     @classmethod
@@ -43,6 +50,54 @@ class ZoneROI(BaseModel):
         if not poly.is_valid:
             poly = poly.buffer(0)
         return poly
+
+
+def _parse_hhmm(value: str) -> int:
+    """Return minutes since midnight for HH:MM."""
+    parts = (value or "00:00").strip().split(":")
+    if len(parts) != 2:
+        return 0
+    try:
+        hour = max(0, min(23, int(parts[0])))
+        minute = max(0, min(59, int(parts[1])))
+    except ValueError:
+        return 0
+    return hour * 60 + minute
+
+
+def is_within_schedule(zone: ZoneROI, when: datetime | None = None) -> bool:
+    """
+    True when rules should fire.
+
+    schedule_enabled=False => always active.
+    Days use Python weekday() (Mon=0 … Sun=6). Overnight windows
+    (e.g. 22:00–06:00) are supported.
+    """
+    if not zone.schedule_enabled:
+        return True
+
+    clock = when or datetime.now(timezone.utc)
+    if clock.tzinfo is None:
+        clock = clock.replace(tzinfo=timezone.utc)
+    try:
+        tz = ZoneInfo(zone.schedule_timezone or "UTC")
+    except ZoneInfoNotFoundError:
+        tz = timezone.utc
+    local = clock.astimezone(tz)
+
+    days = zone.schedule_days if zone.schedule_days is not None else list(range(7))
+    if days and local.weekday() not in {int(d) for d in days}:
+        return False
+
+    start = _parse_hhmm(zone.schedule_start)
+    end = _parse_hhmm(zone.schedule_end)
+    minutes = local.hour * 60 + local.minute
+    if start == end:
+        return True
+    if start < end:
+        return start <= minutes < end
+    # Overnight window
+    return minutes >= start or minutes < end
 
 
 class TripwireLine(BaseModel):
@@ -108,6 +163,7 @@ class ZoneOccupancy(BaseModel):
     loitering_seconds: int = 0
     max_dwell_seconds: float = 0.0
     loitering_active: bool = False
+    schedule_active: bool = True
 
 
 class LoiteringEvent(BaseModel):
@@ -260,11 +316,13 @@ class ROIEngine:
         use_foot_point: bool = True,
         use_bbox_intersection: bool = True,
         now: float | None = None,
+        wall_clock: datetime | None = None,
     ) -> list[ZoneOccupancy]:
         dets = list(detections)
         clock = now if now is not None else self._last_dwell_now
         snapshots: list[ZoneOccupancy] = []
         for zone in self.zones:
+            schedule_active = is_within_schedule(zone, wall_clock)
             inside = self._detections_inside(
                 zone,
                 dets,
@@ -277,7 +335,7 @@ class ROIEngine:
             threshold = int(zone.loitering_seconds or 0)
             max_dwell = 0.0
             loitering_active = False
-            if clock is not None and threshold > 0:
+            if schedule_active and clock is not None and threshold > 0:
                 for tid in track_ids:
                     if tid < 0:
                         continue
@@ -295,11 +353,12 @@ class ROIEngine:
                     count=count,
                     max_allowed=max_allowed,
                     occupancy_pct=self._occupancy_pct(count, max_allowed),
-                    over_capacity=max_allowed > 0 and count > max_allowed,
+                    over_capacity=schedule_active and max_allowed > 0 and count > max_allowed,
                     track_ids=track_ids,
                     loitering_seconds=threshold,
                     max_dwell_seconds=round(max_dwell, 1),
                     loitering_active=loitering_active,
+                    schedule_active=schedule_active,
                 )
             )
         return snapshots
@@ -311,6 +370,7 @@ class ROIEngine:
         now: float,
         use_foot_point: bool = True,
         use_bbox_intersection: bool = True,
+        wall_clock: datetime | None = None,
     ) -> list[LoiteringEvent]:
         """
         Alert when a tracked person remains continuously inside a zone
@@ -324,6 +384,13 @@ class ROIEngine:
         for zone in self.zones:
             threshold = int(zone.loitering_seconds or 0)
             if threshold <= 0:
+                continue
+            if not is_within_schedule(zone, wall_clock):
+                # Outside window: drop dwell state for this zone
+                for key in list(self._zone_enter_ts):
+                    if key[0] == zone.name:
+                        self._zone_enter_ts.pop(key, None)
+                        self._loiter_fired.discard(key)
                 continue
             inside = self._detections_inside(
                 zone,
@@ -376,17 +443,21 @@ class ROIEngine:
         *,
         use_foot_point: bool = True,
         use_bbox_intersection: bool = True,
+        wall_clock: datetime | None = None,
     ) -> list[ZoneAlert]:
         """
         Emit alerts for forbidden-class intrusion and/or over-capacity.
 
         Occupancy mode: max_allowed_objects > 0 and empty forbidden_classes.
         Intrusion mode: forbidden_classes lists banned labels (classic max=0).
+        Outside an enabled schedule window, no alerts are emitted.
         """
         alerts: list[ZoneAlert] = []
         dets = list(detections)
 
         for zone in self.zones:
+            if not is_within_schedule(zone, wall_clock):
+                continue
             inside = self._detections_inside(
                 zone,
                 dets,
@@ -542,6 +613,14 @@ def zones_from_api(
                     for class_name in (item.get("forbidden_classes") or [])
                 ],
                 loitering_seconds=max(0, int(item.get("loitering_seconds", 0) or 0)),
+                schedule_enabled=bool(item.get("schedule_enabled", False)),
+                schedule_start=str(item.get("schedule_start") or "00:00"),
+                schedule_end=str(item.get("schedule_end") or "23:59"),
+                schedule_days=[
+                    int(day)
+                    for day in (item.get("schedule_days") or [0, 1, 2, 3, 4, 5, 6])
+                ],
+                schedule_timezone=str(item.get("schedule_timezone") or "UTC"),
             )
         except (TypeError, ValueError):
             continue
