@@ -17,9 +17,9 @@ export function RoiEditor({
   const [points, setPoints] = useState<Point[]>([]);
   const [zones, setZones] = useState<RoiZone[]>([]);
   const [name, setName] = useState("zone_restreinte");
-  const [mode, setMode] = useState<"intrusion" | "occupancy" | "loitering">(
-    "intrusion",
-  );
+  const [mode, setMode] = useState<
+    "intrusion" | "occupancy" | "loitering" | "ppe"
+  >("intrusion");
   const [capacity, setCapacity] = useState(5);
   const [loiterSeconds, setLoiterSeconds] = useState(15);
   const [scheduleEnabled, setScheduleEnabled] = useState(false);
@@ -111,7 +111,13 @@ export function RoiEditor({
         ([x, y]) => [x / size.w, y / size.h] as number[],
       );
       const zoneColor =
-        mode === "occupancy" ? "#f59e0b" : mode === "loitering" ? "#a78bfa" : "#ef4444";
+        mode === "occupancy"
+          ? "#f59e0b"
+          : mode === "loitering"
+            ? "#a78bfa"
+            : mode === "ppe"
+              ? "#22c55e"
+              : "#ef4444";
       await visionopsApi.createZone({
         name,
         points: normalized,
@@ -119,9 +125,12 @@ export function RoiEditor({
         camera_name: cameraName,
         max_allowed_objects: mode === "occupancy" ? Math.max(1, capacity) : 0,
         forbidden_classes:
-          mode === "occupancy" || mode === "loitering" ? [] : ["person"],
+          mode === "occupancy" || mode === "loitering" || mode === "ppe"
+            ? []
+            : ["person"],
         loitering_seconds:
           mode === "loitering" ? Math.max(1, loiterSeconds) : 0,
+        require_hardhat: mode === "ppe",
         schedule_enabled: scheduleEnabled,
         schedule_start: scheduleStart,
         schedule_end: scheduleEnd,
@@ -169,16 +178,29 @@ export function RoiEditor({
             value={mode}
             onChange={(e) => {
               const value = e.target.value;
-              if (value === "occupancy" || value === "loitering") setMode(value);
-              else setMode("intrusion");
+              if (
+                value === "occupancy" ||
+                value === "loitering" ||
+                value === "ppe"
+              ) {
+                setMode(value);
+              } else setMode("intrusion");
             }}
             className="mt-1 w-full rounded-md border border-white/10 bg-ink px-3 py-2 text-white outline-none focus:border-accent"
           >
             <option value="intrusion">Intrusion (any person)</option>
             <option value="occupancy">Occupancy (capacity)</option>
             <option value="loitering">Loitering (dwell time)</option>
+            <option value="ppe">PPE / hard-hat required</option>
           </select>
         </label>
+        {mode === "ppe" && (
+          <p className="text-xs text-muted">
+            Needs <code className="text-accent">VISIONOPS_PPE_MODEL</code> (or
+            hardhat classes in the stream). Alerts when a person is in the zone
+            without a detected helmet.
+          </p>
+        )}
         {mode === "occupancy" && (
           <label className="block text-sm">
             Capacity (max people)
@@ -293,9 +315,11 @@ export function RoiEditor({
                 <span className="ml-2 text-xs text-muted">
                   {(z.loitering_seconds ?? 0) > 0
                     ? `loiter ${z.loitering_seconds}s`
-                    : z.max_allowed_objects > 0
-                      ? `cap ${z.max_allowed_objects}`
-                      : "intrusion"}
+                    : z.require_hardhat
+                      ? "PPE"
+                      : z.max_allowed_objects > 0
+                        ? `cap ${z.max_allowed_objects}`
+                        : "intrusion"}
                   {z.schedule_enabled
                     ? ` · ${z.schedule_start}-${z.schedule_end}`
                     : ""}

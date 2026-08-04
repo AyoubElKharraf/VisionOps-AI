@@ -32,6 +32,7 @@ VisionOps AI turns live camera streams into operational events. It combines low-
 - **Spatial analytics** with normalized polygon ROI zones, directional tripwires, and **live occupancy** (`count / capacity` + %).
 - **Capacity alerts** when person tracks exceed a zone’s max, separate from classic intrusion (`forbidden_classes`).
 - **Loitering / dwell-time** alerts when a tracked person stays in a zone beyond a configured threshold.
+- **PPE / hard-hat enforcement** on must-wear ROI zones (optional secondary Ultralytics model via `VISIONOPS_PPE_MODEL`).
 - **Scheduled ROI rules** with optional UTC windows and weekday filters (overnight ranges supported).
 - **Incident lifecycle**: open, acknowledge, assign, comment, resolve, reopen, and immutable event history.
 - **Alert evidence** with snapshots and clips processed asynchronously and stored in MinIO.
@@ -412,7 +413,7 @@ Latest status: [![VisionOps CI](https://github.com/AyoubElKharraf/VisionOps-AI/a
 
 Current local baseline:
 
-- **Engine:** 31 tests — ByteTrack, ROI analytics, heatmap, ONNX, RTSP reconnect, multi-cam supervisor
+- **Engine:** 34 tests — ByteTrack, ROI analytics, heatmap, PPE, ONNX, RTSP reconnect, multi-cam supervisor
 - **Backend:** 39 tests — JWT/API-key auth, metrics, notifications, retention, cameras/alerts lifecycle
 - **UI:** 15 unit tests — WHEP security, geometry, stream paths, overlay sync
 - **E2E:** 3 Playwright scenarios — camera CRUD, ROI CRUD, incident workflow (admin JWT injected)
@@ -496,6 +497,7 @@ VisionOps_AI/
 - [x] Loitering / dwell-time zone alerts
 - [x] Scheduled ROI rule windows (UTC hours + weekdays)
 - [x] Live presence heatmap overlay on the monitor
+- [x] PPE / hard-hat must-wear zone alerts
 
 ## License
 

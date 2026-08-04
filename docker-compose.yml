@@ -268,6 +268,8 @@ services:
       DETECTION_STREAM_EVERY: ${DETECTION_STREAM_EVERY:-1}
       # multi = one demo_roi process per active camera (API); single = legacy one-stream mode
       ENGINE_MODE: ${ENGINE_MODE:-multi}
+      VISIONOPS_PPE_MODEL: ${VISIONOPS_PPE_MODEL:-}
+      PPE_EVERY: ${PPE_EVERY:-3}
     command: ["sh", "run_engine.sh"]
     volumes:
       - ./visionops-engine/data:/app/data

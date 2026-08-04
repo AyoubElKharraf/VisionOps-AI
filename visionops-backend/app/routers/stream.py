@@ -36,6 +36,7 @@ class RoiZoneCreate(BaseModel):
     schedule_end: str = Field(default="23:59", pattern=r"^\d{2}:\d{2}$")
     schedule_days: list[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4, 5, 6])
     schedule_timezone: str = Field(default="UTC", min_length=1, max_length=64)
+    require_hardhat: bool = False
     is_active: bool = True
 
 
@@ -53,6 +54,7 @@ class RoiZoneRead(BaseModel):
     schedule_end: str = "23:59"
     schedule_days: list[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4, 5, 6])
     schedule_timezone: str = "UTC"
+    require_hardhat: bool = False
     is_active: bool
 
     model_config = {"from_attributes": True}
@@ -148,6 +150,7 @@ def create_zone(payload: RoiZoneCreate, db: Session = Depends(get_db)) -> RoiZon
         schedule_end=payload.schedule_end,
         schedule_days=payload.schedule_days,
         schedule_timezone=payload.schedule_timezone,
+        require_hardhat=payload.require_hardhat,
         is_active=payload.is_active,
     )
     db.add(zone)

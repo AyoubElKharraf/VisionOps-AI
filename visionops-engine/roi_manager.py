@@ -37,6 +37,7 @@ class ZoneROI(BaseModel):
     schedule_end: str = "23:59"
     schedule_days: list[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4, 5, 6])
     schedule_timezone: str = "UTC"
+    require_hardhat: bool = False
 
     @field_validator("points")
     @classmethod
@@ -171,6 +172,13 @@ class LoiteringEvent(BaseModel):
     track_id: int
     dwell_seconds: float
     threshold_seconds: int
+    class_name: str = "person"
+    message: str
+
+
+class PPEViolation(BaseModel):
+    zone_name: str
+    track_id: int | None
     class_name: str = "person"
     message: str
 
@@ -506,6 +514,51 @@ class ROIEngine:
                 )
         return alerts
 
+    def check_ppe_violations(
+        self,
+        detections: Iterable[Detection],
+        hardhats: Iterable[Detection],
+        *,
+        wall_clock: datetime | None = None,
+        use_foot_point: bool = True,
+        use_bbox_intersection: bool = True,
+    ) -> list[PPEViolation]:
+        """Persons inside require_hardhat zones without an overlapping hardhat."""
+        from ppe_checker import person_has_hardhat
+
+        hats = list(hardhats)
+        dets = list(detections)
+        events: list[PPEViolation] = []
+        for zone in self.zones:
+            if not zone.require_hardhat:
+                continue
+            if not is_within_schedule(zone, wall_clock):
+                continue
+            inside = self._detections_inside(
+                zone,
+                dets,
+                use_foot_point=use_foot_point,
+                use_bbox_intersection=use_bbox_intersection,
+            )
+            for det in inside:
+                if det.class_name != "person":
+                    continue
+                if person_has_hardhat(det, hats):
+                    continue
+                tid = det.track_id
+                events.append(
+                    PPEViolation(
+                        zone_name=zone.name,
+                        track_id=tid,
+                        class_name=det.class_name,
+                        message=(
+                            f"ALERTE PPE : [{zone.name}] personne sans casque"
+                            + (f" track={tid}" if tid is not None else "")
+                        ),
+                    )
+                )
+        return events
+
     def check_line_crossings(self, detections: Iterable[Detection]) -> list[CrossingEvent]:
         """Detect crossings using recent centroid trajectory vs tripwire segment."""
         events: list[CrossingEvent] = []
@@ -621,6 +674,7 @@ def zones_from_api(
                     for day in (item.get("schedule_days") or [0, 1, 2, 3, 4, 5, 6])
                 ],
                 schedule_timezone=str(item.get("schedule_timezone") or "UTC"),
+                require_hardhat=bool(item.get("require_hardhat", False)),
             )
         except (TypeError, ValueError):
             continue

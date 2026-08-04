@@ -17,6 +17,7 @@ class AlertType(str, enum.Enum):
     roi_intrusion = "roi_intrusion"
     tripwire = "tripwire"
     loitering = "loitering"
+    ppe_violation = "ppe_violation"
     custom = "custom"
 
 
@@ -107,6 +108,7 @@ class RoiZone(Base):
     schedule_end: Mapped[str] = mapped_column(String(5), default="23:59")
     schedule_days: Mapped[list] = mapped_column(JSONB, default=lambda: [0, 1, 2, 3, 4, 5, 6])
     schedule_timezone: Mapped[str] = mapped_column(String(64), default="UTC")
+    require_hardhat: Mapped[bool] = mapped_column(default=False)
     is_active: Mapped[bool] = mapped_column(default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

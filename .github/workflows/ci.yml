@@ -39,7 +39,7 @@ jobs:
         run: >
           ruff check main.py demo_roi.py byte_tracker.py roi_manager.py
           onnx_engine.py export_onnx.py alert_client.py stream_capture.py
-          metrics_server.py multi_cam_runner.py presence_heatmap.py tests
+          metrics_server.py multi_cam_runner.py presence_heatmap.py ppe_checker.py tests
 
       - name: Pytest
         run: pytest -q tests

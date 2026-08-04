@@ -121,6 +121,7 @@ export type RoiZone = {
   schedule_end?: string;
   schedule_days?: number[];
   schedule_timezone?: string;
+  require_hardhat?: boolean;
   is_active: boolean;
 };
 
@@ -290,6 +291,7 @@ export const visionopsApi = {
     schedule_end?: string;
     schedule_days?: number[];
     schedule_timezone?: string;
+    require_hardhat?: boolean;
   }) =>
     api<RoiZone>("/api/v1/roi-zones", {
       method: "POST",
@@ -303,6 +305,7 @@ export const visionopsApi = {
         schedule_end: body.schedule_end ?? "23:59",
         schedule_days: body.schedule_days ?? [0, 1, 2, 3, 4, 5, 6],
         schedule_timezone: body.schedule_timezone ?? "UTC",
+        require_hardhat: body.require_hardhat ?? false,
         camera_name: body.camera_name ?? "demo-camera",
       }),
     }),

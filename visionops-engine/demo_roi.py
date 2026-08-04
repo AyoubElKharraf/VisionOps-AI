@@ -24,6 +24,7 @@ from byte_tracker import ByteTrackAdapter
 from metrics_server import record_alert_posted, record_frame, start_metrics_server
 from onnx_engine import COCO_NAMES, ONNXInferenceEngine
 from presence_heatmap import PresenceHeatmap
+from ppe_checker import PPEDetector, hardhats_from_detections
 from roi_manager import (
     CrossingDirection,
     Detection,
@@ -227,6 +228,18 @@ def parse_args() -> argparse.Namespace:
         default=int(os.getenv("RTSP_OPEN_RETRIES", "8")),
         help="Attempts when first opening a live stream",
     )
+    p.add_argument(
+        "--ppe-model",
+        type=str,
+        default=os.getenv("VISIONOPS_PPE_MODEL", ""),
+        help="Optional Ultralytics PPE/hard-hat weights path or hub id",
+    )
+    p.add_argument(
+        "--ppe-every",
+        type=int,
+        default=int(os.getenv("PPE_EVERY", "3")),
+        help="Run secondary PPE detector every N frames (1=every frame)",
+    )
     return p.parse_args()
 
 
@@ -323,6 +336,9 @@ def run(args: argparse.Namespace) -> int:
     roi_refresh_seconds = max(1.0, args.roi_refresh_seconds)
     next_roi_refresh_at = 0.0
     heatmap = PresenceHeatmap()
+    ppe = PPEDetector(model_path=(args.ppe_model or None) or None)
+    ppe_every = max(1, int(getattr(args, "ppe_every", 3) or 3))
+    cached_ppe_hats: list = []
 
     logger.info(
         "Running ROI demo | source=%s | tracker=%s | reconnect=%s | max_frames=%d | post_alerts=%s | stream=%s (every %d) | write_mp4=%s",
@@ -374,6 +390,15 @@ def run(args: argparse.Namespace) -> int:
             occupancy = roi.zone_occupancy(detections, now=time.monotonic(), wall_clock=wall)
             crossings = roi.check_line_crossings(detections)
             heatmap.update(detections, frame_width=width, frame_height=height)
+            if ppe.enabled and frame_idx % ppe_every == 0:
+                cached_ppe_hats = ppe.detect(frame)
+            primary_hats = hardhats_from_detections(detections)
+            hardhats = primary_hats + cached_ppe_hats
+            # Without a PPE model (and no hardhat classes from primary), skip to avoid flooding.
+            if ppe.enabled or primary_hats:
+                ppe_events = roi.check_ppe_violations(detections, hardhats, wall_clock=wall)
+            else:
+                ppe_events = []
 
             if (
                 alert_client is not None
@@ -403,7 +428,8 @@ def run(args: argparse.Namespace) -> int:
                     infer_ms=infer_ms,
                     source_position_ms=source_position_ms,
                     zone_alerts=[a.message for a in alerts]
-                    + [loiter.message for loiter in loiters],
+                    + [loiter.message for loiter in loiters]
+                    + [p.message for p in ppe_events],
                     zone_occupancy=[o.model_dump() for o in occupancy],
                     heatmap=heatmap.snapshot(),
                     camera_name=args.camera_name,
@@ -454,6 +480,30 @@ def run(args: argparse.Namespace) -> int:
                             metadata={
                                 "dwell_seconds": loiter.dwell_seconds,
                                 "threshold_seconds": loiter.threshold_seconds,
+                                "infer_ms": infer_ms,
+                            },
+                        )
+                        posted_alerts += 1
+                        record_alert_posted()
+                        last_posted[key] = frame_idx
+            for ppe_event in ppe_events:
+                logger.warning("%s | infer=%.1fms", ppe_event.message, infer_ms)
+                if alert_client is not None and args.post_alerts:
+                    key = f"ppe:{ppe_event.zone_name}:{ppe_event.track_id}"
+                    if frame_idx - last_posted.get(key, -10_000) >= args.alert_cooldown:
+                        alert_client.create_alert(
+                            alert_type="ppe_violation",
+                            message=ppe_event.message,
+                            camera_name=args.camera_name,
+                            zone_name=ppe_event.zone_name,
+                            class_name=ppe_event.class_name,
+                            track_id=ppe_event.track_id,
+                            source_video_path=source,
+                            frame_index=frame_idx,
+                            snapshot_frame=frame,
+                            metadata={
+                                "reason": "missing_hardhat",
+                                "ppe_model": bool(ppe.enabled),
                                 "infer_ms": infer_ms,
                             },
                         )
