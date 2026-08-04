@@ -123,6 +123,56 @@ def test_over_capacity_alert_without_intrusion():
     assert "CAPACITÉ" in alerts[0].message
     assert engine.zone_occupancy(dets)[0].over_capacity is True
 
+
+def test_loitering_triggers_after_dwell_threshold():
+    engine = ROIEngine()
+    engine.add_zone(
+        ZoneROI(
+            name="lobby",
+            points=[(0, 0), (200, 0), (200, 200), (0, 200)],
+            max_allowed_objects=0,
+            forbidden_classes=[],
+            loitering_seconds=5,
+        )
+    )
+    det = Detection(
+        track_id=42, x1=20, y1=20, x2=50, y2=100, confidence=0.9, class_id=0, class_name="person"
+    )
+    assert engine.check_loitering([det], now=100.0) == []
+    assert engine.check_loitering([det], now=103.0) == []
+    events = engine.check_loitering([det], now=105.5)
+    assert len(events) == 1
+    assert events[0].track_id == 42
+    assert events[0].zone_name == "lobby"
+    assert events[0].dwell_seconds >= 5
+    # only once until person leaves
+    assert engine.check_loitering([det], now=110.0) == []
+    # leave then re-enter resets timer
+    assert engine.check_loitering([], now=111.0) == []
+    assert engine.check_loitering([det], now=112.0) == []
+    events2 = engine.check_loitering([det], now=117.5)
+    assert len(events2) == 1
+    occ = engine.zone_occupancy([det], now=117.5)
+    assert occ[0].loitering_active is True
+    assert occ[0].max_dwell_seconds >= 5
+
+
+def test_zones_from_api_reads_loitering_seconds():
+    zones = zones_from_api(
+        [
+            {
+                "name": "wait-area",
+                "points": [[0, 0], [1, 0], [1, 1], [0, 1]],
+                "loitering_seconds": 30,
+                "forbidden_classes": [],
+                "is_active": True,
+            }
+        ],
+        width=100,
+        height=100,
+    )
+    assert len(zones) == 1
+    assert zones[0].loitering_seconds == 30
 def test_tripwire_crossing_detected():
     engine = ROIEngine(history_len=10)
     engine.add_tripwire(

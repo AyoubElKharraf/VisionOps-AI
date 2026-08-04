@@ -101,6 +101,7 @@ class RoiZone(Base):
     color: Mapped[str] = mapped_column(String(32), default="#ef4444")
     max_allowed_objects: Mapped[int] = mapped_column(Integer, default=0)
     forbidden_classes: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    loitering_seconds: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

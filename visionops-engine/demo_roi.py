@@ -366,7 +366,8 @@ def run(args: argparse.Namespace) -> int:
                 detections = roi.assign_tracks(detections)
 
             alerts = roi.check_zone_intrusion(detections)
-            occupancy = roi.zone_occupancy(detections)
+            loiters = roi.check_loitering(detections, now=time.monotonic())
+            occupancy = roi.zone_occupancy(detections, now=time.monotonic())
             crossings = roi.check_line_crossings(detections)
 
             if (
@@ -396,7 +397,8 @@ def run(args: argparse.Namespace) -> int:
                     boxes=boxes_payload,
                     infer_ms=infer_ms,
                     source_position_ms=source_position_ms,
-                    zone_alerts=[a.message for a in alerts],
+                    zone_alerts=[a.message for a in alerts]
+                    + [loiter.message for loiter in loiters],
                     zone_occupancy=[o.model_dump() for o in occupancy],
                     camera_name=args.camera_name,
                 )
@@ -428,6 +430,30 @@ def run(args: argparse.Namespace) -> int:
                             posted_alerts += 1
                             record_alert_posted()
                             last_posted[key] = frame_idx
+            for loiter in loiters:
+                logger.warning("%s | infer=%.1fms", loiter.message, infer_ms)
+                if alert_client is not None and args.post_alerts:
+                    key = f"loiter:{loiter.zone_name}:{loiter.track_id}"
+                    if frame_idx - last_posted.get(key, -10_000) >= args.alert_cooldown:
+                        alert_client.create_alert(
+                            alert_type="loitering",
+                            message=loiter.message,
+                            camera_name=args.camera_name,
+                            zone_name=loiter.zone_name,
+                            class_name=loiter.class_name,
+                            track_id=loiter.track_id,
+                            source_video_path=source,
+                            frame_index=frame_idx,
+                            snapshot_frame=frame,
+                            metadata={
+                                "dwell_seconds": loiter.dwell_seconds,
+                                "threshold_seconds": loiter.threshold_seconds,
+                                "infer_ms": infer_ms,
+                            },
+                        )
+                        posted_alerts += 1
+                        record_alert_posted()
+                        last_posted[key] = frame_idx
             for c in crossings:
                 crossing_total += 1
                 logger.warning("%s | infer=%.1fms", c.message, infer_ms)

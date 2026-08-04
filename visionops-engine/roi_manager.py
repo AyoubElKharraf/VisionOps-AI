@@ -23,12 +23,13 @@ class CrossingDirection(str, Enum):
 
 
 class ZoneROI(BaseModel):
-    """Polygonal region of interest with intrusion rules."""
+    """Polygonal region of interest with intrusion / occupancy / loitering rules."""
 
     name: str
     points: list[tuple[float, float]] = Field(..., min_length=3)
     max_allowed_objects: int = Field(default=0, ge=0)
     forbidden_classes: list[str] = Field(default_factory=lambda: ["person"])
+    loitering_seconds: int = Field(default=0, ge=0)
 
     @field_validator("points")
     @classmethod
@@ -104,6 +105,18 @@ class ZoneOccupancy(BaseModel):
     occupancy_pct: float
     over_capacity: bool
     track_ids: list[int] = Field(default_factory=list)
+    loitering_seconds: int = 0
+    max_dwell_seconds: float = 0.0
+    loitering_active: bool = False
+
+
+class LoiteringEvent(BaseModel):
+    zone_name: str
+    track_id: int
+    dwell_seconds: float
+    threshold_seconds: int
+    class_name: str = "person"
+    message: str
 
 
 class CrossingEvent(BaseModel):
@@ -134,6 +147,10 @@ class ROIEngine:
         self._frame_idx = 0
         self._next_track_id = 1
         self._prev_centers: dict[int, tuple[float, float]] = {}
+        # (zone_name, track_id) -> first monotonic timestamp inside zone
+        self._zone_enter_ts: dict[tuple[str, int], float] = {}
+        self._loiter_fired: set[tuple[str, int]] = set()
+        self._last_dwell_now: float | None = None
 
     def add_zone(self, zone: ZoneROI) -> None:
         self.zones.append(zone)
@@ -242,8 +259,10 @@ class ROIEngine:
         *,
         use_foot_point: bool = True,
         use_bbox_intersection: bool = True,
+        now: float | None = None,
     ) -> list[ZoneOccupancy]:
         dets = list(detections)
+        clock = now if now is not None else self._last_dwell_now
         snapshots: list[ZoneOccupancy] = []
         for zone in self.zones:
             inside = self._detections_inside(
@@ -255,6 +274,21 @@ class ROIEngine:
             track_ids = self._person_track_ids(inside)
             count = len(track_ids)
             max_allowed = zone.max_allowed_objects
+            threshold = int(zone.loitering_seconds or 0)
+            max_dwell = 0.0
+            loitering_active = False
+            if clock is not None and threshold > 0:
+                for tid in track_ids:
+                    if tid < 0:
+                        continue
+                    key = (zone.name, tid)
+                    entered = self._zone_enter_ts.get(key)
+                    if entered is None:
+                        continue
+                    dwell = max(0.0, clock - entered)
+                    max_dwell = max(max_dwell, dwell)
+                    if dwell >= threshold:
+                        loitering_active = True
             snapshots.append(
                 ZoneOccupancy(
                     zone_name=zone.name,
@@ -263,9 +297,78 @@ class ROIEngine:
                     occupancy_pct=self._occupancy_pct(count, max_allowed),
                     over_capacity=max_allowed > 0 and count > max_allowed,
                     track_ids=track_ids,
+                    loitering_seconds=threshold,
+                    max_dwell_seconds=round(max_dwell, 1),
+                    loitering_active=loitering_active,
                 )
             )
         return snapshots
+
+    def check_loitering(
+        self,
+        detections: Iterable[Detection],
+        *,
+        now: float,
+        use_foot_point: bool = True,
+        use_bbox_intersection: bool = True,
+    ) -> list[LoiteringEvent]:
+        """
+        Alert when a tracked person remains continuously inside a zone
+        for at least ``zone.loitering_seconds`` (0 disables).
+        """
+        self._last_dwell_now = now
+        events: list[LoiteringEvent] = []
+        dets = list(detections)
+        active_keys: set[tuple[str, int]] = set()
+
+        for zone in self.zones:
+            threshold = int(zone.loitering_seconds or 0)
+            if threshold <= 0:
+                continue
+            inside = self._detections_inside(
+                zone,
+                dets,
+                use_foot_point=use_foot_point,
+                use_bbox_intersection=use_bbox_intersection,
+            )
+            for det in inside:
+                if det.class_name != "person" or det.track_id is None:
+                    continue
+                tid = int(det.track_id)
+                if tid < 0:
+                    continue
+                key = (zone.name, tid)
+                active_keys.add(key)
+                if key not in self._zone_enter_ts:
+                    self._zone_enter_ts[key] = now
+                dwell = now - self._zone_enter_ts[key]
+                if dwell >= threshold and key not in self._loiter_fired:
+                    self._loiter_fired.add(key)
+                    events.append(
+                        LoiteringEvent(
+                            zone_name=zone.name,
+                            track_id=tid,
+                            dwell_seconds=round(dwell, 1),
+                            threshold_seconds=threshold,
+                            class_name=det.class_name,
+                            message=(
+                                f"ALERTE LOITERING : [{zone.name}] track={tid} "
+                                f"dwell={dwell:.0f}s (seuil {threshold}s)"
+                            ),
+                        )
+                    )
+
+        stale = [
+            key
+            for key in list(self._zone_enter_ts)
+            if key[0] in {z.name for z in self.zones if (z.loitering_seconds or 0) > 0}
+            and key not in active_keys
+        ]
+        for key in stale:
+            self._zone_enter_ts.pop(key, None)
+            self._loiter_fired.discard(key)
+
+        return events
 
     def check_zone_intrusion(
         self,
@@ -438,6 +541,7 @@ def zones_from_api(
                     str(class_name)
                     for class_name in (item.get("forbidden_classes") or [])
                 ],
+                loitering_seconds=max(0, int(item.get("loitering_seconds", 0) or 0)),
             )
         except (TypeError, ValueError):
             continue

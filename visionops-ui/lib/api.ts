@@ -115,6 +115,7 @@ export type RoiZone = {
   color: string;
   max_allowed_objects: number;
   forbidden_classes: string[] | null;
+  loitering_seconds?: number;
   is_active: boolean;
 };
 
@@ -136,6 +137,9 @@ export type ZoneOccupancy = {
   occupancy_pct: number;
   over_capacity: boolean;
   track_ids?: number[];
+  loitering_seconds?: number;
+  max_dwell_seconds?: number;
+  loitering_active?: boolean;
 };
 
 export type DetectionFrame = {
@@ -266,6 +270,7 @@ export const visionopsApi = {
     camera_name?: string;
     max_allowed_objects?: number;
     forbidden_classes?: string[];
+    loitering_seconds?: number;
   }) =>
     api<RoiZone>("/api/v1/roi-zones", {
       method: "POST",
@@ -273,6 +278,7 @@ export const visionopsApi = {
         ...body,
         max_allowed_objects: body.max_allowed_objects ?? 0,
         forbidden_classes: body.forbidden_classes ?? ["person"],
+        loitering_seconds: body.loitering_seconds ?? 0,
         camera_name: body.camera_name ?? "demo-camera",
       }),
     }),

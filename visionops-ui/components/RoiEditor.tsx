@@ -17,8 +17,11 @@ export function RoiEditor({
   const [points, setPoints] = useState<Point[]>([]);
   const [zones, setZones] = useState<RoiZone[]>([]);
   const [name, setName] = useState("zone_restreinte");
-  const [mode, setMode] = useState<"intrusion" | "occupancy">("intrusion");
+  const [mode, setMode] = useState<"intrusion" | "occupancy" | "loitering">(
+    "intrusion",
+  );
   const [capacity, setCapacity] = useState(5);
+  const [loiterSeconds, setLoiterSeconds] = useState(15);
   const [status, setStatus] = useState<string>("");
   const [size, setSize] = useState({ w: 640, h: 360 });
 
@@ -89,13 +92,18 @@ export function RoiEditor({
       const normalized = points.map(
         ([x, y]) => [x / size.w, y / size.h] as number[],
       );
+      const zoneColor =
+        mode === "occupancy" ? "#f59e0b" : mode === "loitering" ? "#a78bfa" : "#ef4444";
       await visionopsApi.createZone({
         name,
         points: normalized,
-        color: mode === "occupancy" ? "#f59e0b" : "#ef4444",
+        color: zoneColor,
         camera_name: cameraName,
         max_allowed_objects: mode === "occupancy" ? Math.max(1, capacity) : 0,
-        forbidden_classes: mode === "occupancy" ? [] : ["person"],
+        forbidden_classes:
+          mode === "occupancy" || mode === "loitering" ? [] : ["person"],
+        loitering_seconds:
+          mode === "loitering" ? Math.max(1, loiterSeconds) : 0,
       });
       setPoints([]);
       setStatus("Zone saved");
@@ -136,13 +144,16 @@ export function RoiEditor({
           Rule mode
           <select
             value={mode}
-            onChange={(e) =>
-              setMode(e.target.value === "occupancy" ? "occupancy" : "intrusion")
-            }
+            onChange={(e) => {
+              const value = e.target.value;
+              if (value === "occupancy" || value === "loitering") setMode(value);
+              else setMode("intrusion");
+            }}
             className="mt-1 w-full rounded-md border border-white/10 bg-ink px-3 py-2 text-white outline-none focus:border-accent"
           >
             <option value="intrusion">Intrusion (any person)</option>
             <option value="occupancy">Occupancy (capacity)</option>
+            <option value="loitering">Loitering (dwell time)</option>
           </select>
         </label>
         {mode === "occupancy" && (
@@ -153,6 +164,20 @@ export function RoiEditor({
               min={1}
               value={capacity}
               onChange={(e) => setCapacity(Math.max(1, Number(e.target.value) || 1))}
+              className="mt-1 w-full rounded-md border border-white/10 bg-ink px-3 py-2 text-white outline-none focus:border-accent"
+            />
+          </label>
+        )}
+        {mode === "loitering" && (
+          <label className="block text-sm">
+            Dwell threshold (seconds)
+            <input
+              type="number"
+              min={1}
+              value={loiterSeconds}
+              onChange={(e) =>
+                setLoiterSeconds(Math.max(1, Number(e.target.value) || 1))
+              }
               className="mt-1 w-full rounded-md border border-white/10 bg-ink px-3 py-2 text-white outline-none focus:border-accent"
             />
           </label>
@@ -188,9 +213,11 @@ export function RoiEditor({
               <span>
                 {z.name}
                 <span className="ml-2 text-xs text-muted">
-                  {z.max_allowed_objects > 0
-                    ? `cap ${z.max_allowed_objects}`
-                    : "intrusion"}
+                  {(z.loitering_seconds ?? 0) > 0
+                    ? `loiter ${z.loitering_seconds}s`
+                    : z.max_allowed_objects > 0
+                      ? `cap ${z.max_allowed_objects}`
+                      : "intrusion"}
                 </span>
               </span>
               <button

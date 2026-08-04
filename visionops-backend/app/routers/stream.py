@@ -30,6 +30,7 @@ class RoiZoneCreate(BaseModel):
     color: str = "#ef4444"
     max_allowed_objects: int = 0
     forbidden_classes: list[str] | None = ["person"]
+    loitering_seconds: int = Field(default=0, ge=0)
     is_active: bool = True
 
 
@@ -41,6 +42,7 @@ class RoiZoneRead(BaseModel):
     color: str
     max_allowed_objects: int
     forbidden_classes: list[str] | None
+    loitering_seconds: int = 0
     is_active: bool
 
     model_config = {"from_attributes": True}
@@ -64,6 +66,9 @@ class ZoneOccupancySnapshot(BaseModel):
     occupancy_pct: float = 0.0
     over_capacity: bool = False
     track_ids: list[int] = Field(default_factory=list)
+    loitering_seconds: int = 0
+    max_dwell_seconds: float = 0.0
+    loitering_active: bool = False
 
 
 class DetectionFrame(BaseModel):
@@ -117,6 +122,7 @@ def create_zone(payload: RoiZoneCreate, db: Session = Depends(get_db)) -> RoiZon
         color=payload.color,
         max_allowed_objects=payload.max_allowed_objects,
         forbidden_classes=payload.forbidden_classes,
+        loitering_seconds=payload.loitering_seconds,
         is_active=payload.is_active,
     )
     db.add(zone)
