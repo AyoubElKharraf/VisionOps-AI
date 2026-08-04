@@ -1,0 +1,14 @@
+{
+  "images": {
+    "img_perfect": [
+      { "class_name": "person", "confidence": 0.95, "xyxy": [21, 16, 69, 99] }
+    ],
+    "img_partial": [
+      { "class_name": "person", "confidence": 0.88, "xyxy": [12, 12, 48, 88] },
+      { "class_name": "person", "confidence": 0.40, "xyxy": [5, 5, 30, 30] }
+    ],
+    "img_empty": [
+      { "class_name": "person", "confidence": 0.55, "xyxy": [40, 40, 80, 90] }
+    ]
+  }
+}

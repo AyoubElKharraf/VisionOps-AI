@@ -1,0 +1,30 @@
+{
+  "name": "mini",
+  "classes": ["person"],
+  "images": [
+    {
+      "id": "img_perfect",
+      "file": "images/img_perfect.jpg",
+      "width": 160,
+      "height": 120,
+      "boxes": [{ "class_name": "person", "xyxy": [20, 15, 70, 100] }]
+    },
+    {
+      "id": "img_partial",
+      "file": "images/img_partial.jpg",
+      "width": 160,
+      "height": 120,
+      "boxes": [
+        { "class_name": "person", "xyxy": [10, 10, 50, 90] },
+        { "class_name": "person", "xyxy": [90, 20, 140, 110] }
+      ]
+    },
+    {
+      "id": "img_empty",
+      "file": "images/img_empty.jpg",
+      "width": 160,
+      "height": 120,
+      "boxes": []
+    }
+  ]
+}
