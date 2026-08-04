@@ -120,6 +120,26 @@ function AlertCard({
               Clip
             </a>
           )}
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              void (async () => {
+                try {
+                  setBusy(true);
+                  setError(null);
+                  await visionopsApi.downloadAlertExport(alert.id);
+                } catch (e) {
+                  setError(e instanceof Error ? e.message : "Export failed");
+                } finally {
+                  setBusy(false);
+                }
+              })();
+            }}
+            className="text-accent hover:underline disabled:opacity-50"
+          >
+            Export ZIP
+          </button>
         </div>
 
         <div className="space-y-2 border-t border-white/10 pt-3">

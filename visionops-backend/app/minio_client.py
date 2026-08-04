@@ -106,6 +106,29 @@ def delete_object(object_key: str) -> bool:
         return False
 
 
+def download_object_bytes(object_key: str) -> bytes | None:
+    """Fetch object bytes from MinIO. Returns None if missing/unreachable."""
+    if not object_key:
+        return None
+    settings = get_settings()
+    client = get_minio_client()
+    try:
+        response = client.get_object(settings.minio_bucket, object_key)
+        try:
+            return response.read()
+        finally:
+            response.close()
+            response.release_conn()
+    except S3Error as exc:
+        if getattr(exc, "code", "") in {"NoSuchKey", "NoSuchObject"}:
+            return None
+        logger.warning("download failed for %s: %s", object_key, exc)
+        return None
+    except (MinioException, Urllib3HTTPError, OSError) as exc:
+        logger.warning("download failed for %s: %s", object_key, exc)
+        return None
+
+
 def list_objects(prefix: str = "alerts/") -> list[dict]:
     """Return [{key, size, last_modified}] for objects under prefix."""
     settings = get_settings()

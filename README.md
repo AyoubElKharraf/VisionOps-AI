@@ -35,7 +35,7 @@ VisionOps AI turns live camera streams into operational events. It combines low-
 - **PPE / hard-hat enforcement** on must-wear ROI zones (optional secondary Ultralytics model via `VISIONOPS_PPE_MODEL`).
 - **Scheduled ROI rules** with optional UTC windows and weekday filters (overnight ranges supported).
 - **Incident lifecycle**: open, acknowledge, assign, comment, resolve, reopen, and immutable event history.
-- **Alert evidence** with snapshots and clips processed asynchronously and stored in MinIO.
+- **Alert evidence** with snapshots and clips processed asynchronously and stored in MinIO, plus one-click **ZIP incident export** (media + timeline).
 - **Dual authentication**: service `X-API-Key` for the engine, JWT sessions + roles (`admin` / `operator`) for humans.
 - **Admin user management** UI at `/users` (create operators and admins).
 - **Notifications** via webhook, Slack, and/or SMTP email on lifecycle events.
@@ -342,7 +342,7 @@ alembic revision --autogenerate -m "describe schema change"
 | ROI zones | `GET/POST /api/v1/roi-zones`, `DELETE /api/v1/roi-zones/{id}` |
 | Detections | `POST /api/v1/detections`, `GET /api/v1/detections/latest` |
 | Live detections | `WS /api/v1/ws/detections` |
-| Alerts | `GET/POST /api/v1/alerts`, `GET/DELETE /api/v1/alerts/{id}` |
+| Alerts | `GET/POST /api/v1/alerts`, `GET/DELETE /api/v1/alerts/{id}`, `GET /api/v1/alerts/{id}/export` (ZIP evidence pack) |
 | Incident workflow | `acknowledge`, `assign`, `comments`, `resolve`, `reopen`, `events` |
 
 See the interactive OpenAPI documentation at [http://127.0.0.1:8001/docs](http://127.0.0.1:8001/docs).
@@ -414,7 +414,7 @@ Latest status: [![VisionOps CI](https://github.com/AyoubElKharraf/VisionOps-AI/a
 Current local baseline:
 
 - **Engine:** 34 tests — ByteTrack, ROI analytics, heatmap, PPE, ONNX, RTSP reconnect, multi-cam supervisor
-- **Backend:** 39 tests — JWT/API-key auth, metrics, notifications, retention, cameras/alerts lifecycle
+- **Backend:** 40 tests — JWT/API-key auth, metrics, notifications, retention, incidents, ZIP export
 - **UI:** 15 unit tests — WHEP security, geometry, stream paths, overlay sync
 - **E2E:** 3 Playwright scenarios — camera CRUD, ROI CRUD, incident workflow (admin JWT injected)
 
@@ -498,6 +498,7 @@ VisionOps_AI/
 - [x] Scheduled ROI rule windows (UTC hours + weekdays)
 - [x] Live presence heatmap overlay on the monitor
 - [x] PPE / hard-hat must-wear zone alerts
+- [x] Incident ZIP evidence export (snapshot/clip/timeline)
 
 ## License
 

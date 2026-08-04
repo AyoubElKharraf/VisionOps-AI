@@ -247,6 +247,34 @@ export const visionopsApi = {
     return api<Alert[]>(`/api/v1/alerts?${params.toString()}`);
   },
   getAlert: (id: string) => api<Alert>(`/api/v1/alerts/${id}`),
+  downloadAlertExport: async (id: string) => {
+    const headers: Record<string, string> = {};
+    const token = clientAccessToken();
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    } else if (API_KEY) {
+      headers["X-API-Key"] = API_KEY;
+    }
+    const res = await fetch(`${API_URL}/api/v1/alerts/${id}/export`, {
+      headers,
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`${res.status} ${text}`);
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const disposition = res.headers.get("Content-Disposition") || "";
+    const match = /filename="?([^"]+)"?/i.exec(disposition);
+    a.href = url;
+    a.download = match?.[1] || `visionops-incident-${id.slice(0, 8)}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
   listAlertEvents: (id: string) => api<AlertEvent[]>(`/api/v1/alerts/${id}/events`),
   acknowledgeAlert: (id: string, body: { actor?: string; note?: string } = {}) =>
     api<Alert>(`/api/v1/alerts/${id}/acknowledge`, {

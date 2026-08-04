@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
+import io
+import json
 import uuid
+import zipfile
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
 
 from app.auth import require_auth, require_roles
 from app.database import get_db
 from app.metrics import record_alert_created
-from app.minio_client import presigned_get_url, delete_object
+from app.minio_client import delete_object, download_object_bytes, presigned_get_url
 from app.models import (
     Alert,
     AlertEvent,
@@ -174,6 +178,82 @@ def list_alerts(
 def get_alert(alert_id: uuid.UUID, db: Session = Depends(get_db)) -> AlertRead:
     alert = _get_alert(db, alert_id, with_events=True)
     return _to_read(alert, include_events=True)
+
+
+@router.get("/{alert_id}/export")
+def export_alert_pack(alert_id: uuid.UUID, db: Session = Depends(get_db)) -> StreamingResponse:
+    """Download a ZIP evidence pack: incident.json, timeline, snapshot, clip."""
+    alert = _get_alert(db, alert_id, with_events=True)
+    read = _to_read(alert, include_events=True)
+
+    manifest = {
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "incident": json.loads(read.model_dump_json()),
+        "files": [],
+    }
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        if alert.snapshot_object_key:
+            snap = download_object_bytes(alert.snapshot_object_key)
+            if snap:
+                name = "snapshot.jpg"
+                if "." in alert.snapshot_object_key.rsplit("/", 1)[-1]:
+                    ext = alert.snapshot_object_key.rsplit(".", 1)[-1].lower()
+                    if ext in {"jpg", "jpeg", "png", "webp"}:
+                        name = f"snapshot.{ext if ext != 'jpeg' else 'jpg'}"
+                zf.writestr(name, snap)
+                manifest["files"].append(name)
+
+        if alert.clip_object_key:
+            clip = download_object_bytes(alert.clip_object_key)
+            if clip:
+                name = "clip.mp4"
+                if "." in alert.clip_object_key.rsplit("/", 1)[-1]:
+                    ext = alert.clip_object_key.rsplit(".", 1)[-1].lower()
+                    if ext in {"mp4", "webm", "avi", "mkv"}:
+                        name = f"clip.{ext}"
+                zf.writestr(name, clip)
+                manifest["files"].append(name)
+
+        timeline = [
+            {
+                "event_type": e.event_type,
+                "actor": e.actor,
+                "message": e.message,
+                "metadata": e.metadata_json,
+                "created_at": e.created_at.isoformat() if e.created_at else None,
+            }
+            for e in (alert.events or [])
+        ]
+        zf.writestr(
+            "timeline.json",
+            json.dumps(timeline, indent=2, default=str).encode("utf-8"),
+        )
+        manifest["files"].append("timeline.json")
+        zf.writestr(
+            "incident.json",
+            json.dumps(manifest, indent=2, default=str).encode("utf-8"),
+        )
+        zf.writestr(
+            "README.txt",
+            (
+                "VisionOps AI — incident evidence pack\n"
+                f"Alert ID: {alert.id}\n"
+                f"Type: {alert.alert_type.value if hasattr(alert.alert_type, 'value') else alert.alert_type}\n"
+                f"Camera: {alert.camera.name if alert.camera else 'n/a'}\n"
+                f"Message: {alert.message}\n"
+                "Contents: incident.json, timeline.json, optional snapshot/clip media.\n"
+            ).encode("utf-8"),
+        )
+
+    buffer.seek(0)
+    filename = f"visionops-incident-{str(alert.id)[:8]}.zip"
+    return StreamingResponse(
+        buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.delete("/{alert_id}", status_code=204)
