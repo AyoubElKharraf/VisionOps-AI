@@ -1,0 +1,63 @@
+{
+  "name": "alerts_mini",
+  "classes": ["person"],
+  "zones": [
+    {
+      "name": "dock",
+      "points": [[0.0, 0.0], [80.0, 0.0], [80.0, 120.0], [0.0, 120.0]],
+      "forbidden_classes": ["person"],
+      "max_allowed_objects": 0,
+      "loitering_seconds": 0
+    },
+    {
+      "name": "lobby",
+      "points": [[100.0, 0.0], [160.0, 0.0], [160.0, 120.0], [100.0, 120.0]],
+      "forbidden_classes": [],
+      "max_allowed_objects": 1,
+      "loitering_seconds": 0
+    }
+  ],
+  "images": [
+    {
+      "id": "intrusion_tp",
+      "file": "images/intrusion_tp.jpg",
+      "width": 160,
+      "height": 120,
+      "boxes": [{ "class_name": "person", "xyxy": [20, 20, 60, 100], "track_id": 1 }],
+      "alerts": [
+        { "alert_type": "roi_intrusion", "zone_name": "dock", "reason": "intrusion" }
+      ]
+    },
+    {
+      "id": "clean_frame",
+      "file": "images/clean_frame.jpg",
+      "width": 160,
+      "height": 120,
+      "boxes": [{ "class_name": "person", "xyxy": [110, 30, 150, 100], "track_id": 2 }],
+      "alerts": []
+    },
+    {
+      "id": "capacity_fp_case",
+      "file": "images/capacity_fp_case.jpg",
+      "width": 160,
+      "height": 120,
+      "boxes": [
+        { "class_name": "person", "xyxy": [105, 20, 130, 90], "track_id": 3 },
+        { "class_name": "person", "xyxy": [132, 25, 155, 95], "track_id": 4 }
+      ],
+      "alerts": [
+        { "alert_type": "roi_intrusion", "zone_name": "lobby", "reason": "over_capacity" }
+      ]
+    },
+    {
+      "id": "missed_intrusion",
+      "file": "images/missed_intrusion.jpg",
+      "width": 160,
+      "height": 120,
+      "boxes": [],
+      "alerts": [
+        { "alert_type": "roi_intrusion", "zone_name": "dock", "reason": "intrusion" }
+      ]
+    }
+  ]
+}

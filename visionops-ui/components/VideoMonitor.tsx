@@ -9,6 +9,8 @@ import {
   DEFAULT_VIDEO_LATENCY_MS,
   extrapolateBox,
   overlayLeadMs,
+  suggestedLatencyMs,
+  syncQuality,
   trackVelocities,
 } from "@/lib/overlaySync.mjs";
 import { startWhepPlayback, type WhepSession } from "@/lib/whep";
@@ -17,7 +19,8 @@ export type VideoSourceMode = "webrtc" | "hls" | "demo";
 
 type TrackVelocity = { vx: number; vy: number };
 
-const LATENCY_STORAGE_KEY = "visionops:videoLatencyMs";
+const latencyStorageKey = (mode: VideoSourceMode) =>
+  `visionops:videoLatencyMs:${mode}`;
 
 type Props = {
   mode?: VideoSourceMode;
@@ -47,20 +50,71 @@ export function VideoMonitor({
   const [streamState, setStreamState] = useState<"idle" | "connecting" | "live" | "error">(
     "idle",
   );
-  const [videoLatencyMs, setVideoLatencyMs] = useState(DEFAULT_VIDEO_LATENCY_MS);
+  const [videoLatencyMs, setVideoLatencyMs] = useState(() =>
+    suggestedLatencyMs(mode, DEFAULT_VIDEO_LATENCY_MS),
+  );
   const [leadMs, setLeadMs] = useState(0);
+  const [detAgeMs, setDetAgeMs] = useState(0);
+  const [syncLabel, setSyncLabel] = useState<"synced" | "trailing" | "leading" | "stale">(
+    "synced",
+  );
   const [showHeatmap, setShowHeatmap] = useState(true);
+  const [showBoxes, setShowBoxes] = useState(true);
+  const [extrapolate, setExtrapolate] = useState(true);
   const velocitiesRef = useRef<Map<number, TrackVelocity>>(new Map());
   const previousFrameRef = useRef<DetectionFrame | null>(null);
+  const leadMsRef = useRef(0);
+  const detAgeMsRef = useRef(0);
+  const latencyRef = useRef(videoLatencyMs);
+  const extrapolateRef = useRef(extrapolate);
+  const showBoxesRef = useRef(showBoxes);
+  const showHeatmapRef = useRef(showHeatmap);
 
   useEffect(() => {
-    const stored = Number(window.localStorage.getItem(LATENCY_STORAGE_KEY));
-    if (Number.isFinite(stored) && stored >= 0) setVideoLatencyMs(stored);
+    latencyRef.current = videoLatencyMs;
+  }, [videoLatencyMs]);
+  useEffect(() => {
+    extrapolateRef.current = extrapolate;
+  }, [extrapolate]);
+  useEffect(() => {
+    showBoxesRef.current = showBoxes;
+  }, [showBoxes]);
+  useEffect(() => {
+    showHeatmapRef.current = showHeatmap;
+  }, [showHeatmap]);
+
+  useEffect(() => {
+    const key = latencyStorageKey(mode);
+    const stored = Number(window.localStorage.getItem(key));
+    if (Number.isFinite(stored) && stored >= 0) {
+      setVideoLatencyMs(stored);
+    } else {
+      setVideoLatencyMs(suggestedLatencyMs(mode, DEFAULT_VIDEO_LATENCY_MS));
+    }
+  }, [mode]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setLeadMs(leadMsRef.current);
+      setDetAgeMs(detAgeMsRef.current);
+      setSyncLabel(
+        syncQuality(detAgeMsRef.current, latencyRef.current) as
+          | "synced"
+          | "trailing"
+          | "leading"
+          | "stale",
+      );
+    }, 250);
+    return () => window.clearInterval(id);
   }, []);
 
   const changeVideoLatency = (value: number) => {
     setVideoLatencyMs(value);
-    window.localStorage.setItem(LATENCY_STORAGE_KEY, String(value));
+    window.localStorage.setItem(latencyStorageKey(mode), String(value));
+  };
+
+  const resetLatency = () => {
+    changeVideoLatency(suggestedLatencyMs(mode, DEFAULT_VIDEO_LATENCY_MS));
   };
 
   useEffect(() => {
@@ -203,7 +257,7 @@ export function VideoMonitor({
       const srcH = frame?.height || video?.videoHeight || h;
       const videoRect = objectContainRect(w, h, srcW, srcH);
 
-      if (showHeatmap && frame?.heatmap?.cells?.length) {
+      if (showHeatmapRef.current && frame?.heatmap?.cells?.length) {
         const cols = Math.max(1, frame.heatmap.cols || 64);
         const rows = Math.max(1, frame.heatmap.rows || 36);
         const cellW = videoRect.width / cols;
@@ -300,9 +354,14 @@ export function VideoMonitor({
         ctx.fillText(label, lx + 5, ly);
       }
 
-      if (frame?.boxes?.length) {
-        const lead = overlayLeadMs(Date.now(), frame.captured_at_ms, videoLatencyMs);
-        setLeadMs(Math.round(lead));
+      if (showBoxesRef.current && frame?.boxes?.length) {
+        const now = Date.now();
+        const age = now - frame.captured_at_ms;
+        detAgeMsRef.current = Math.max(0, Math.round(age));
+        const lead = extrapolateRef.current
+          ? overlayLeadMs(now, frame.captured_at_ms, latencyRef.current)
+          : 0;
+        leadMsRef.current = Math.round(lead);
         for (const raw of frame.boxes) {
           const box = extrapolateBox(
             raw,
@@ -325,6 +384,9 @@ export function VideoMonitor({
           ctx.fillStyle = "#0b1220";
           ctx.fillText(label, x1 + 4, Math.max(12, y1 - 5));
         }
+      } else if (frame?.captured_at_ms) {
+        detAgeMsRef.current = Math.max(0, Math.round(Date.now() - frame.captured_at_ms));
+        leadMsRef.current = 0;
       }
 
       if (frame?.zone_alerts?.length) {
@@ -341,7 +403,14 @@ export function VideoMonitor({
     };
     animationFrame = window.requestAnimationFrame(render);
     return () => window.cancelAnimationFrame(animationFrame);
-  }, [frame, zones, videoLatencyMs, showHeatmap]);
+  }, [frame, zones]);
+
+  const syncColor =
+    syncLabel === "synced"
+      ? "text-accent"
+      : syncLabel === "stale"
+        ? "text-red-300"
+        : "text-amber-300";
 
   return (
     <div className={className}>
@@ -370,6 +439,20 @@ export function VideoMonitor({
         >
           Detections WS: {wsState}
         </span>
+        {frame && (
+          <span className={syncColor}>
+            Sync: {syncLabel} · age {detAgeMs} ms
+          </span>
+        )}
+        <label className="flex items-center gap-2 text-muted">
+          <input
+            type="checkbox"
+            checked={showBoxes}
+            onChange={(e) => setShowBoxes(e.target.checked)}
+            className="rounded border-white/20"
+          />
+          Boxes
+        </label>
         <label className="flex items-center gap-2 text-muted">
           <input
             type="checkbox"
@@ -381,6 +464,15 @@ export function VideoMonitor({
           {frame?.heatmap?.cells?.length
             ? ` (${frame.heatmap.cells.length})`
             : ""}
+        </label>
+        <label className="flex items-center gap-2 text-muted">
+          <input
+            type="checkbox"
+            checked={extrapolate}
+            onChange={(e) => setExtrapolate(e.target.checked)}
+            className="rounded border-white/20"
+          />
+          Extrapolate
         </label>
         {frame?.infer_ms != null && (
           <span className="text-muted">infer {frame.infer_ms.toFixed(1)} ms</span>
@@ -411,9 +503,28 @@ export function VideoMonitor({
           />
           <span className="w-14 text-white">{videoLatencyMs} ms</span>
         </label>
+        <div className="flex flex-wrap gap-1">
+          {[0, suggestedLatencyMs(mode), 250, 400].map((ms) => (
+            <button
+              key={ms}
+              type="button"
+              onClick={() => changeVideoLatency(ms)}
+              className="min-h-8 rounded border border-white/15 px-2 text-[11px] text-white hover:bg-white/5"
+            >
+              {ms === suggestedLatencyMs(mode) ? `auto ${ms}` : `${ms}`}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={resetLatency}
+            className="min-h-8 rounded border border-white/15 px-2 text-[11px] text-white hover:bg-white/5"
+          >
+            reset
+          </button>
+        </div>
         <span>
-          overlay lead {leadMs} ms — raise the slider if boxes run ahead, lower it if
-          they trail
+          overlay lead {leadMs} ms — raise latency if boxes trail, lower if they lead
+          {syncLabel === "stale" ? " · detections look stale" : ""}
         </span>
       </div>
       <div

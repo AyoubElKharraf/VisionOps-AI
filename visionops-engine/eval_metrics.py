@@ -17,6 +17,7 @@ class Box:
     xyxy: tuple[float, float, float, float]
     class_name: str
     confidence: float = 1.0
+    track_id: int | None = None
 
     @property
     def x1(self) -> float:
@@ -261,6 +262,158 @@ def evaluate_dataset(
         micro_f1=_f1(micro_p, micro_r),
         false_alarm_rate=_safe_div(total_fp, total_tp + total_fp),
         false_alarms_per_image=_safe_div(total_fp, n_images),
+        total_tp=total_tp,
+        total_fp=total_fp,
+        total_fn=total_fn,
+    )
+
+
+@dataclass(frozen=True)
+class AlertLabel:
+    """One expected or predicted operational alert on a frame."""
+
+    alert_type: str
+    zone_name: str
+    reason: str = ""
+
+    def key(self, *, include_reason: bool = True) -> tuple[str, ...]:
+        zone = (self.zone_name or "").strip().lower()
+        atype = (self.alert_type or "").strip().lower()
+        if include_reason:
+            return (atype, zone, (self.reason or "").strip().lower())
+        return (atype, zone)
+
+
+@dataclass
+class AlertTypeMetrics:
+    alert_type: str
+    tp: int = 0
+    fp: int = 0
+    fn: int = 0
+    precision: float = 0.0
+    recall: float = 0.0
+    f1: float = 0.0
+    false_alarm_rate: float = 0.0
+
+
+@dataclass
+class AlertEvalReport:
+    num_images: int
+    match_reason: bool
+    types: list[AlertTypeMetrics] = field(default_factory=list)
+    micro_precision: float = 0.0
+    micro_recall: float = 0.0
+    micro_f1: float = 0.0
+    false_alarm_rate: float = 0.0
+    false_alarms_per_image: float = 0.0
+    frames_with_fp: int = 0
+    frames_with_fn: int = 0
+    total_tp: int = 0
+    total_fp: int = 0
+    total_fn: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "num_images": self.num_images,
+            "match_reason": self.match_reason,
+            "micro_precision": round(self.micro_precision, 6),
+            "micro_recall": round(self.micro_recall, 6),
+            "micro_f1": round(self.micro_f1, 6),
+            "false_alarm_rate": round(self.false_alarm_rate, 6),
+            "false_alarms_per_image": round(self.false_alarms_per_image, 6),
+            "frames_with_fp": self.frames_with_fp,
+            "frames_with_fn": self.frames_with_fn,
+            "total_tp": self.total_tp,
+            "total_fp": self.total_fp,
+            "total_fn": self.total_fn,
+            "types": [asdict(t) for t in self.types],
+        }
+
+
+def _alert_multiset(alerts: Sequence[AlertLabel], *, include_reason: bool) -> dict[tuple[str, ...], int]:
+    counts: dict[tuple[str, ...], int] = {}
+    for alert in alerts:
+        key = alert.key(include_reason=include_reason)
+        counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def evaluate_alerts(
+    images: Sequence[tuple[Sequence[AlertLabel], Sequence[AlertLabel]]],
+    *,
+    match_reason: bool = True,
+) -> AlertEvalReport:
+    """
+    Frame-level alert matching.
+
+    GT and predictions are bags of alerts keyed by (type, zone[, reason]).
+    Extra predicted keys are false alarms; missing GT keys are misses.
+    """
+    type_tp: dict[str, int] = {}
+    type_fp: dict[str, int] = {}
+    type_fn: dict[str, int] = {}
+    total_tp = total_fp = total_fn = 0
+    frames_fp = frames_fn = 0
+
+    for gts, preds in images:
+        gt_counts = _alert_multiset(gts, include_reason=match_reason)
+        pred_counts = _alert_multiset(preds, include_reason=match_reason)
+        keys = set(gt_counts) | set(pred_counts)
+        frame_fp = frame_fn = 0
+        for key in keys:
+            g = gt_counts.get(key, 0)
+            p = pred_counts.get(key, 0)
+            tp = min(g, p)
+            fp = max(0, p - g)
+            fn = max(0, g - p)
+            atype = key[0] if key else "unknown"
+            type_tp[atype] = type_tp.get(atype, 0) + tp
+            type_fp[atype] = type_fp.get(atype, 0) + fp
+            type_fn[atype] = type_fn.get(atype, 0) + fn
+            total_tp += tp
+            total_fp += fp
+            total_fn += fn
+            frame_fp += fp
+            frame_fn += fn
+        if frame_fp:
+            frames_fp += 1
+        if frame_fn:
+            frames_fn += 1
+
+    types = []
+    for atype in sorted(set(type_tp) | set(type_fp) | set(type_fn)):
+        tp = type_tp.get(atype, 0)
+        fp = type_fp.get(atype, 0)
+        fn = type_fn.get(atype, 0)
+        precision = _safe_div(tp, tp + fp)
+        recall = _safe_div(tp, tp + fn)
+        types.append(
+            AlertTypeMetrics(
+                alert_type=atype,
+                tp=tp,
+                fp=fp,
+                fn=fn,
+                precision=precision,
+                recall=recall,
+                f1=_f1(precision, recall),
+                false_alarm_rate=_safe_div(fp, tp + fp),
+            )
+        )
+
+    micro_p = _safe_div(total_tp, total_tp + total_fp)
+    micro_r = _safe_div(total_tp, total_tp + total_fn)
+    n_images = len(images)
+    return AlertEvalReport(
+        num_images=n_images,
+        match_reason=match_reason,
+        types=types,
+        micro_precision=micro_p,
+        micro_recall=micro_r,
+        micro_f1=_f1(micro_p, micro_r),
+        false_alarm_rate=_safe_div(total_fp, total_tp + total_fp),
+        false_alarms_per_image=_safe_div(total_fp, n_images),
+        frames_with_fp=frames_fp,
+        frames_with_fn=frames_fn,
         total_tp=total_tp,
         total_fp=total_fp,
         total_fn=total_fn,

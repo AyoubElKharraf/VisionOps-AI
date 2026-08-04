@@ -9,6 +9,33 @@
 export const DEFAULT_VIDEO_LATENCY_MS = 150;
 export const MAX_LEAD_MS = 500;
 
+/** Sensible starting points per playback path (display delay before pixels appear). */
+export const MODE_LATENCY_DEFAULTS = Object.freeze({
+  webrtc: 120,
+  hls: 280,
+  demo: 80,
+});
+
+export function suggestedLatencyMs(mode, fallback = DEFAULT_VIDEO_LATENCY_MS) {
+  if (mode && Object.prototype.hasOwnProperty.call(MODE_LATENCY_DEFAULTS, mode)) {
+    return MODE_LATENCY_DEFAULTS[mode];
+  }
+  return fallback;
+}
+
+/**
+ * Classify how stale detections look relative to the tuned video latency.
+ * synced | trailing | leading | stale
+ */
+export function syncQuality(ageMs, videoLatencyMs, { staleAfterMs = 3000 } = {}) {
+  if (!Number.isFinite(ageMs) || ageMs < 0) return "stale";
+  if (ageMs >= staleAfterMs) return "stale";
+  const residual = ageMs - videoLatencyMs;
+  if (residual > 120) return "trailing"; // boxes still behind motion after compensate
+  if (residual < -80) return "leading"; // slider too high / boxes jump ahead
+  return "synced";
+}
+
 function centerOf(box) {
   return { x: (box.x1 + box.x2) / 2, y: (box.y1 + box.y2) / 2 };
 }

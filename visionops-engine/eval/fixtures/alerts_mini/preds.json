@@ -1,0 +1,27 @@
+{
+  "images": {
+    "intrusion_tp": [
+      { "class_name": "person", "confidence": 0.92, "xyxy": [21, 21, 59, 99], "track_id": 1 }
+    ],
+    "clean_frame": [
+      { "class_name": "person", "confidence": 0.90, "xyxy": [111, 31, 149, 99], "track_id": 2 }
+    ],
+    "capacity_fp_case": [
+      { "class_name": "person", "confidence": 0.88, "xyxy": [106, 21, 129, 89], "track_id": 3 },
+      { "class_name": "person", "confidence": 0.87, "xyxy": [133, 26, 154, 94], "track_id": 4 }
+    ],
+    "missed_intrusion": []
+  },
+  "alerts": {
+    "intrusion_tp": [
+      { "alert_type": "roi_intrusion", "zone_name": "dock", "reason": "intrusion" }
+    ],
+    "clean_frame": [
+      { "alert_type": "roi_intrusion", "zone_name": "dock", "reason": "intrusion" }
+    ],
+    "capacity_fp_case": [
+      { "alert_type": "roi_intrusion", "zone_name": "lobby", "reason": "over_capacity" }
+    ],
+    "missed_intrusion": []
+  }
+}

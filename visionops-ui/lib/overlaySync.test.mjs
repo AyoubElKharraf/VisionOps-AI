@@ -4,6 +4,8 @@ import test from "node:test";
 import {
   extrapolateBox,
   overlayLeadMs,
+  suggestedLatencyMs,
+  syncQuality,
   trackVelocities,
 } from "./overlaySync.mjs";
 
@@ -73,4 +75,18 @@ test("returns the original box when velocity or lead is missing", () => {
   const original = box(1, 10, 10, 20, 20);
   assert.equal(extrapolateBox(original, undefined, 200, {}), original);
   assert.equal(extrapolateBox(original, { vx: 1, vy: 1 }, 0, {}), original);
+});
+
+test("suggests latency defaults per video mode", () => {
+  assert.equal(suggestedLatencyMs("webrtc"), 120);
+  assert.equal(suggestedLatencyMs("hls"), 280);
+  assert.equal(suggestedLatencyMs("demo"), 80);
+  assert.equal(suggestedLatencyMs("unknown", 99), 99);
+});
+
+test("classifies overlay sync quality from residual delay", () => {
+  assert.equal(syncQuality(150, 150), "synced");
+  assert.equal(syncQuality(400, 150), "trailing");
+  assert.equal(syncQuality(40, 150), "leading");
+  assert.equal(syncQuality(5000, 150), "stale");
 });

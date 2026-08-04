@@ -1,36 +1,46 @@
 """
-VisionOps AI — offline detection eval harness.
+VisionOps AI — offline detection + alert eval harness.
 
-Runs a detector (ONNX or Ultralytics) against a labeled dataset JSON, or scores
-precomputed predictions, and writes a report with mAP@0.5 + false-alarm rate.
+Detection mode reports mAP@0.5 and box-level false-alarm rate.
+Alert mode compares ROI/loitering alerts per frame (GT vs predicted or simulated).
 
 Dataset JSON schema (labels.json):
 {
   "name": "site-a",
   "classes": ["person"],
+  "zones": [
+    {
+      "name": "dock",
+      "points": [[x,y], ...],
+      "forbidden_classes": ["person"],
+      "max_allowed_objects": 0,
+      "loitering_seconds": 0
+    }
+  ],
   "images": [
     {
       "id": "frame_001",
       "file": "images/001.jpg",
       "width": 640,
       "height": 480,
-      "boxes": [{"class_name": "person", "xyxy": [x1, y1, x2, y2]}]
+      "boxes": [{"class_name": "person", "xyxy": [x1,y1,x2,y2], "track_id": 1}],
+      "alerts": [
+        {"alert_type": "roi_intrusion", "zone_name": "dock", "reason": "intrusion"}
+      ]
     }
   ]
 }
 
-Predictions JSON (optional --predictions):
+Predictions JSON may include boxes and/or alerts:
 {
-  "images": {
-    "frame_001": [
-      {"class_name": "person", "confidence": 0.91, "xyxy": [x1,y1,x2,y2]}
-    ]
-  }
+  "images": { "frame_001": [ {"class_name":"person","confidence":0.9,"xyxy":[...]} ] },
+  "alerts":  { "frame_001": [ {"alert_type":"roi_intrusion","zone_name":"dock","reason":"intrusion"} ] }
 }
 
 Usage:
   python eval_harness.py --dataset eval/fixtures/mini/labels.json --predictions eval/fixtures/mini/preds.json
-  python eval_harness.py --dataset path/to/labels.json --onnx yolov8n_416.onnx --report out/report.json
+  python eval_harness.py --dataset eval/fixtures/alerts_mini/labels.json --predictions eval/fixtures/alerts_mini/preds.json --alerts predictions
+  python eval_harness.py --dataset eval/fixtures/alerts_mini/labels.json --predictions eval/fixtures/alerts_mini/preds.json --alerts simulate
 """
 
 from __future__ import annotations
@@ -42,12 +52,19 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 import cv2
 import numpy as np
 
-from eval_metrics import Box, EvalReport, evaluate_dataset
+from eval_metrics import (
+    AlertEvalReport,
+    AlertLabel,
+    Box,
+    EvalReport,
+    evaluate_alerts,
+    evaluate_dataset,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -60,7 +77,7 @@ ENGINE_DIR = Path(__file__).resolve().parent
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="VisionOps offline detection eval")
+    p = argparse.ArgumentParser(description="VisionOps offline detection / alert eval")
     p.add_argument("--dataset", type=Path, required=True, help="Path to labels.json")
     p.add_argument(
         "--predictions",
@@ -88,6 +105,18 @@ def parse_args() -> argparse.Namespace:
         default="person",
         help="Comma-separated class filter (empty = all GT classes)",
     )
+    p.add_argument(
+        "--alerts",
+        choices=("auto", "off", "predictions", "simulate"),
+        default="auto",
+        help="Alert eval: auto|off|predictions|simulate via ROIEngine on boxes",
+    )
+    p.add_argument(
+        "--alert-match-reason",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Include alert reason in matching key (default: true)",
+    )
     p.add_argument("--report", type=Path, default=None, help="Write JSON report here")
     p.add_argument("--max-images", type=int, default=0, help="0 = all images")
     return p.parse_args()
@@ -100,36 +129,52 @@ def load_dataset(path: Path) -> dict[str, Any]:
     return data
 
 
-def load_predictions(path: Path) -> dict[str, list[Box]]:
+def _parse_box(raw: dict[str, Any], *, default_conf: float = 1.0) -> Box:
+    track_raw = raw.get("track_id")
+    track_id = int(track_raw) if track_raw is not None else None
+    return Box(
+        xyxy=tuple(float(v) for v in raw["xyxy"]),  # type: ignore[arg-type]
+        class_name=str(raw["class_name"]),
+        confidence=float(raw.get("confidence", default_conf)),
+        track_id=track_id,
+    )
+
+
+def _parse_alert(raw: dict[str, Any]) -> AlertLabel:
+    return AlertLabel(
+        alert_type=str(raw.get("alert_type") or raw.get("type") or "roi_intrusion"),
+        zone_name=str(raw.get("zone_name") or raw.get("zone") or ""),
+        reason=str(raw.get("reason") or ""),
+    )
+
+
+def load_predictions(path: Path) -> tuple[dict[str, list[Box]], dict[str, list[AlertLabel]]]:
     raw = json.loads(path.read_text(encoding="utf-8"))
     images = raw.get("images") or {}
-    out: dict[str, list[Box]] = {}
+    boxes_out: dict[str, list[Box]] = {}
     for image_id, boxes in images.items():
-        out[str(image_id)] = [
-            Box(
-                xyxy=tuple(float(v) for v in b["xyxy"]),  # type: ignore[arg-type]
-                class_name=str(b["class_name"]),
-                confidence=float(b.get("confidence", 1.0)),
-            )
-            for b in boxes
-        ]
-    return out
+        boxes_out[str(image_id)] = [_parse_box(b) for b in boxes]
+
+    alerts_raw = raw.get("alerts") or {}
+    alerts_out: dict[str, list[AlertLabel]] = {
+        str(image_id): [_parse_alert(a) for a in alerts]
+        for image_id, alerts in alerts_raw.items()
+    }
+    return boxes_out, alerts_out
 
 
 def gt_boxes_from_image(item: dict[str, Any], allowed: set[str] | None) -> list[Box]:
     boxes: list[Box] = []
     for b in item.get("boxes") or []:
-        name = str(b["class_name"])
-        if allowed is not None and name not in allowed:
+        box = _parse_box(b, default_conf=1.0)
+        if allowed is not None and box.class_name not in allowed:
             continue
-        boxes.append(
-            Box(
-                xyxy=tuple(float(v) for v in b["xyxy"]),  # type: ignore[arg-type]
-                class_name=name,
-                confidence=1.0,
-            )
-        )
+        boxes.append(box)
     return boxes
+
+
+def gt_alerts_from_image(item: dict[str, Any]) -> list[AlertLabel]:
+    return [_parse_alert(a) for a in (item.get("alerts") or [])]
 
 
 def _class_name(names: dict[int, str] | list[str], class_id: int) -> str:
@@ -148,13 +193,18 @@ def run_onnx(
 ) -> list[Box]:
     dets, _ms = engine.predict(image_bgr)
     out: list[Box] = []
-    for row in dets:
+    for idx, row in enumerate(dets):
         x1, y1, x2, y2, conf, cls_id = row.tolist()
         name = _class_name(engine.names, int(cls_id))
         if allowed is not None and name not in allowed:
             continue
         out.append(
-            Box(xyxy=(x1, y1, x2, y2), class_name=name, confidence=float(conf))
+            Box(
+                xyxy=(x1, y1, x2, y2),
+                class_name=name,
+                confidence=float(conf),
+                track_id=idx + 1,
+            )
         )
     return out
 
@@ -177,7 +227,7 @@ def run_ultralytics(
     xyxy = r0.boxes.xyxy.cpu().numpy()
     confs = r0.boxes.conf.cpu().numpy()
     clss = r0.boxes.cls.cpu().numpy().astype(int)
-    for box, c, cls_id in zip(xyxy, confs, clss, strict=True):
+    for i, (box, c, cls_id) in enumerate(zip(xyxy, confs, clss, strict=True)):
         name = _class_name(names, int(cls_id))
         if allowed is not None and name not in allowed:
             continue
@@ -186,6 +236,7 @@ def run_ultralytics(
                 xyxy=(float(box[0]), float(box[1]), float(box[2]), float(box[3])),
                 class_name=name,
                 confidence=float(c),
+                track_id=i + 1,
             )
         )
     return out
@@ -196,14 +247,123 @@ def resolve_image_path(dataset_path: Path, rel: str) -> Path:
     candidate = root / rel
     if candidate.exists():
         return candidate
-    # Also allow absolute paths embedded in JSON
     abs_path = Path(rel)
     if abs_path.exists():
         return abs_path
     raise FileNotFoundError(f"Image not found: {rel} (looked under {root})")
 
 
-def run_eval(args: argparse.Namespace) -> EvalReport:
+def _scale_zone_points(
+    points: list[list[float]] | list[tuple[float, float]],
+    width: float,
+    height: float,
+) -> list[tuple[float, float]]:
+    vals = [(float(p[0]), float(p[1])) for p in points]
+    if vals and max(max(abs(x), abs(y)) for x, y in vals) <= 1.5:
+        return [(x * width, y * height) for x, y in vals]
+    return vals
+
+
+def build_roi_engine(zones_raw: list[dict[str, Any]], *, width: float, height: float):
+    from roi_manager import ROIEngine, ZoneROI
+
+    engine = ROIEngine()
+    for item in zones_raw:
+        if "forbidden_classes" in item:
+            forbidden = list(item.get("forbidden_classes") or [])
+        else:
+            forbidden = ["person"]
+        zone = ZoneROI(
+            name=str(item["name"]),
+            points=_scale_zone_points(item.get("points") or [], width, height),
+            max_allowed_objects=int(item.get("max_allowed_objects", 0) or 0),
+            forbidden_classes=forbidden,
+            loitering_seconds=int(item.get("loitering_seconds", 0) or 0),
+            schedule_enabled=bool(item.get("schedule_enabled", False)),
+            schedule_start=str(item.get("schedule_start", "00:00")),
+            schedule_end=str(item.get("schedule_end", "23:59")),
+            schedule_days=list(item.get("schedule_days") or [0, 1, 2, 3, 4, 5, 6]),
+            schedule_timezone=str(item.get("schedule_timezone", "UTC")),
+            require_hardhat=bool(item.get("require_hardhat", False)),
+        )
+        engine.add_zone(zone)
+    return engine
+
+
+def boxes_to_detections(boxes: Sequence[Box], *, class_id: int = 0):
+    from roi_manager import Detection
+
+    dets = []
+    for i, box in enumerate(boxes):
+        tid = box.track_id if box.track_id is not None else i + 1
+        dets.append(
+            Detection(
+                track_id=tid,
+                x1=box.x1,
+                y1=box.y1,
+                x2=box.x2,
+                y2=box.y2,
+                confidence=box.confidence,
+                class_id=class_id,
+                class_name=box.class_name,
+            )
+        )
+    return dets
+
+
+def simulate_alerts(
+    zones_raw: list[dict[str, Any]],
+    boxes: list[Box],
+    *,
+    width: float,
+    height: float,
+    now: float,
+) -> list[AlertLabel]:
+    if not zones_raw:
+        return []
+    engine = build_roi_engine(zones_raw, width=width, height=height)
+    dets = boxes_to_detections(boxes)
+    out: list[AlertLabel] = []
+    for alert in engine.check_zone_intrusion(dets):
+        out.append(
+            AlertLabel(
+                alert_type="roi_intrusion",
+                zone_name=alert.zone_name,
+                reason=alert.reason or "intrusion",
+            )
+        )
+    for event in engine.check_loitering(dets, now=now):
+        out.append(
+            AlertLabel(
+                alert_type="loitering",
+                zone_name=event.zone_name,
+                reason="loitering",
+            )
+        )
+    return out
+
+
+def resolve_alert_mode(
+    mode: str,
+    *,
+    dataset: dict[str, Any],
+    pred_alerts: dict[str, list[AlertLabel]] | None,
+) -> str:
+    if mode != "auto":
+        return mode
+    has_gt_alerts = any(bool(img.get("alerts")) for img in dataset.get("images") or [])
+    has_zones = bool(dataset.get("zones"))
+    has_pred_alerts = bool(pred_alerts)
+    if not has_gt_alerts and not has_zones:
+        return "off"
+    if has_pred_alerts:
+        return "predictions"
+    if has_zones:
+        return "simulate"
+    return "off"
+
+
+def run_eval(args: argparse.Namespace) -> tuple[EvalReport, AlertEvalReport | None, str]:
     dataset = load_dataset(args.dataset)
     class_filter = [c.strip() for c in args.classes.split(",") if c.strip()]
     allowed: set[str] | None = set(class_filter) if class_filter else None
@@ -215,9 +375,19 @@ def run_eval(args: argparse.Namespace) -> EvalReport:
         images_meta = images_meta[: args.max_images]
 
     precomputed: dict[str, list[Box]] | None = None
+    pred_alerts: dict[str, list[AlertLabel]] | None = None
     if args.predictions:
-        precomputed = load_predictions(args.predictions)
-        logger.info("Loaded predictions for %d images", len(precomputed))
+        precomputed, pred_alerts = load_predictions(args.predictions)
+        logger.info(
+            "Loaded predictions for %d images (%d with alert labels)",
+            len(precomputed),
+            len(pred_alerts or {}),
+        )
+
+    alert_mode = resolve_alert_mode(
+        args.alerts, dataset=dataset, pred_alerts=pred_alerts
+    )
+    logger.info("Alert eval mode: %s", alert_mode)
 
     onnx_engine = None
     pt_model = None
@@ -239,9 +409,13 @@ def run_eval(args: argparse.Namespace) -> EvalReport:
             onnx_engine = ONNXInferenceEngine(onnx_path, conf_thres=args.conf)
 
     pairs: list[tuple[list[Box], list[Box]]] = []
+    alert_pairs: list[tuple[list[AlertLabel], list[AlertLabel]]] = []
+    zones_raw = list(dataset.get("zones") or [])
     t0 = time.perf_counter()
-    for item in images_meta:
+    for frame_i, item in enumerate(images_meta):
         image_id = str(item.get("id") or item.get("file"))
+        width = float(item.get("width") or 0) or 1.0
+        height = float(item.get("height") or 0) or 1.0
         gts = gt_boxes_from_image(item, allowed)
         if precomputed is not None:
             preds = list(precomputed.get(image_id, []))
@@ -252,6 +426,7 @@ def run_eval(args: argparse.Namespace) -> EvalReport:
             frame = cv2.imread(str(img_path))
             if frame is None:
                 raise RuntimeError(f"Failed to read image: {img_path}")
+            height, width = frame.shape[:2]
             if pt_model is not None:
                 preds = run_ultralytics(
                     frame, model=pt_model, conf=args.conf, allowed=allowed
@@ -260,11 +435,25 @@ def run_eval(args: argparse.Namespace) -> EvalReport:
                 preds = run_onnx(frame, engine=onnx_engine, allowed=allowed)
         pairs.append((gts, preds))
 
+        if alert_mode != "off":
+            gt_alerts = gt_alerts_from_image(item)
+            if alert_mode == "predictions":
+                pred_a = list((pred_alerts or {}).get(image_id, []))
+            else:
+                pred_a = simulate_alerts(
+                    zones_raw,
+                    preds,
+                    width=width,
+                    height=height,
+                    now=float(frame_i),
+                )
+            alert_pairs.append((gt_alerts, pred_a))
+
     elapsed = time.perf_counter() - t0
     class_list = sorted(allowed) if allowed else None
     report = evaluate_dataset(pairs, classes=class_list, iou_threshold=args.iou)
     logger.info(
-        "Eval done | images=%d | mAP@%.2f=%.4f | FAR=%.4f | FP/img=%.3f | %.1fms/img",
+        "Detection eval | images=%d | mAP@%.2f=%.4f | FAR=%.4f | FP/img=%.3f | %.1fms/img",
         report.num_images,
         args.iou,
         report.map50,
@@ -272,13 +461,28 @@ def run_eval(args: argparse.Namespace) -> EvalReport:
         report.false_alarms_per_image,
         (elapsed * 1000.0 / max(1, report.num_images)),
     )
-    return report
+
+    alert_report: AlertEvalReport | None = None
+    if alert_mode != "off":
+        alert_report = evaluate_alerts(
+            alert_pairs, match_reason=bool(args.alert_match_reason)
+        )
+        logger.info(
+            "Alert eval | TP=%d FP=%d FN=%d | FAR=%.4f | precision=%.4f recall=%.4f",
+            alert_report.total_tp,
+            alert_report.total_fp,
+            alert_report.total_fn,
+            alert_report.false_alarm_rate,
+            alert_report.micro_precision,
+            alert_report.micro_recall,
+        )
+    return report, alert_report, alert_mode
 
 
 def main() -> int:
     args = parse_args()
     try:
-        report = run_eval(args)
+        report, alert_report, alert_mode = run_eval(args)
     except Exception as exc:  # noqa: BLE001
         logger.error("%s", exc)
         return 1
@@ -290,6 +494,9 @@ def main() -> int:
     else:
         payload["model"] = args.pt_model or args.onnx
     payload["conf_threshold"] = args.conf
+    payload["alert_mode"] = alert_mode
+    if alert_report is not None:
+        payload["alerts"] = alert_report.to_dict()
 
     text = json.dumps(payload, indent=2)
     print(text)

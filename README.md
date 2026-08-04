@@ -43,7 +43,7 @@ VisionOps AI turns live camera streams into operational events. It combines low-
 - **Notifications** via webhook, Slack, and/or SMTP email on lifecycle events.
 - **Retention & quotas** for MinIO media and resolved incidents (Celery Beat).
 - **Observability** with Prometheus metrics and a provisioned Grafana dashboard.
-- **Offline eval harness** for detector mAP@0.5, precision/recall, and false-alarm rate on labeled clips.
+- **Offline eval harness** for detector mAP@0.5, precision/recall, and false-alarm rate on labeled clips — plus ROI/alert-level FAR (intrusion / over-capacity / loitering).
 - **Versioned database schema** with Alembic migrations.
 - **Automated quality gates** covering unit, API, tracking, build, and Playwright E2E tests.
 
@@ -220,7 +220,7 @@ The previous nearest-centroid tracker remains available for diagnostics:
 python demo_roi.py --tracker centroid
 ```
 
-The frontend uses each `track_id` to estimate object velocity and compensate for residual video/detection latency. The Live Monitor exposes a latency slider for environment-specific fine tuning.
+The frontend uses each `track_id` to estimate object velocity and compensate for residual video/detection latency. The Live Monitor exposes per-source latency defaults (WebRTC / HLS / demo), quick presets, a sync health chip (`synced` / `trailing` / `leading` / `stale`), and toggles for boxes, heatmap, and extrapolation.
 
 ## Configuration
 
@@ -381,11 +381,25 @@ python eval_harness.py `
   --predictions eval/fixtures/mini/preds.json `
   --report eval/out/mini_report.json
 
+# ROI / alert-level eval (GT alerts vs predicted or ROIEngine-simulated)
+python eval_harness.py `
+  --dataset eval/fixtures/alerts_mini/labels.json `
+  --predictions eval/fixtures/alerts_mini/preds.json `
+  --alerts predictions `
+  --report eval/out/alerts_report.json
+
+python eval_harness.py `
+  --dataset eval/fixtures/alerts_mini/labels.json `
+  --predictions eval/fixtures/alerts_mini/preds.json `
+  --alerts simulate `
+  --report eval/out/alerts_sim_report.json
+
 # Same harness against a live ONNX model + labeled images
 python eval_harness.py `
   --dataset path/to/labels.json `
   --onnx yolov8n_416.onnx `
   --classes person `
+  --alerts simulate `
   --report eval/out/report.json
 ```
 
@@ -430,7 +444,7 @@ Latest status: [![VisionOps CI](https://github.com/AyoubElKharraf/VisionOps-AI/a
 
 Current local baseline:
 
-- **Engine:** 45 tests — ByteTrack, ROI analytics, heatmap, PPE, ONNX, RTSP reconnect, multi-cam supervisor, model registry sync, offline eval metrics
+- **Engine:** 48 tests — ByteTrack, ROI analytics, heatmap, PPE, ONNX, RTSP reconnect, multi-cam supervisor, model registry sync, offline eval (boxes + alerts)
 - **Backend:** 42 tests — JWT/API-key auth, metrics, notifications, retention, incidents, ZIP export, model registry
 - **UI:** 15 unit tests — WHEP security, geometry, stream paths, overlay sync
 - **E2E:** 3 Playwright scenarios — camera CRUD, ROI CRUD, incident workflow (admin JWT injected)
@@ -519,6 +533,7 @@ VisionOps_AI/
 - [x] Mobile-friendly alert triage (sticky Ack/Resolve)
 - [x] Model registry & versioning (MinIO artifacts, activate per role, engine sync)
 - [x] Offline eval harness (mAP@0.5 + false-alarm rate on labeled datasets)
+- [x] Alert-level eval (ROI intrusion / capacity / loitering FAR vs GT)
 
 ## License
 

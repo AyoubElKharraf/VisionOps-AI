@@ -12,10 +12,32 @@ const INCIDENT_FILTERS = [
   { value: "resolved", label: "Resolved" },
 ] as const;
 
+const TYPE_FILTERS = [
+  { value: "", label: "All types" },
+  { value: "roi_intrusion", label: "Intrusion" },
+  { value: "loitering", label: "Loitering" },
+  { value: "ppe_violation", label: "PPE" },
+  { value: "tripwire", label: "Tripwire" },
+] as const;
+
 function statusTone(incidentStatus: string): string {
   if (incidentStatus === "resolved") return "text-accent";
   if (incidentStatus === "acknowledged") return "text-amber-300";
   return "text-red-300";
+}
+
+function relativeTime(iso: string): string {
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return "";
+  const delta = Math.max(0, Date.now() - t);
+  const sec = Math.floor(delta / 1000);
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 48) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  return `${day}d ago`;
 }
 
 function AlertCard({
@@ -94,7 +116,9 @@ function AlertCard({
         </div>
         <p className="text-sm leading-snug">{alert.message}</p>
         <p className="text-xs text-muted">
-          {new Date(alert.created_at).toLocaleString()}
+          <span title={new Date(alert.created_at).toLocaleString()}>
+            {relativeTime(alert.created_at)}
+          </span>
           {alert.camera_name ? ` · ${alert.camera_name}` : ""}
           {alert.zone_name ? ` · ${alert.zone_name}` : ""}
           {alert.assigned_to ? ` · assigned ${alert.assigned_to}` : ""}
@@ -306,17 +330,20 @@ export function AlertGallery({ cameraName }: { cameraName?: string }) {
   const { user } = useAuth();
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [incidentFilter, setIncidentFilter] = useState("open");
+  const [typeFilter, setTypeFilter] = useState("");
   const [actor, setActor] = useState("operator");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     if (user?.username) setActor(user.username);
   }, [user?.username]);
 
-  const load = async () => {
+  const load = async (opts?: { soft?: boolean }) => {
     try {
-      setLoading(true);
+      if (opts?.soft) setRefreshing(true);
+      else setLoading(true);
       setAlerts(
         await visionopsApi.listAlerts(48, cameraName, incidentFilter || undefined),
       );
@@ -325,18 +352,32 @@ export function AlertGallery({ cameraName }: { cameraName?: string }) {
       setError(e instanceof Error ? e.message : "Failed to load alerts");
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
   useEffect(() => {
     void load();
-    const id = window.setInterval(() => void load(), 10000);
+    const id = window.setInterval(() => void load({ soft: true }), 10000);
     return () => clearInterval(id);
   }, [cameraName, incidentFilter]);
+
+  const visible = typeFilter
+    ? alerts.filter((a) => a.alert_type === typeFilter)
+    : alerts;
 
   return (
     <div className="space-y-4">
       <div className="space-y-3 rounded-lg border border-white/10 bg-panel/40 p-3 sm:p-4">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs text-muted">
+            {visible.length} shown
+            {typeFilter || incidentFilter
+              ? ` · filters on`
+              : ""}
+            {refreshing ? " · updating…" : ""}
+          </p>
+        </div>
         <div className="flex gap-2 overflow-x-auto pb-1">
           {INCIDENT_FILTERS.map((opt) => {
             const active = incidentFilter === opt.value;
@@ -349,6 +390,25 @@ export function AlertGallery({ cameraName }: { cameraName?: string }) {
                   active
                     ? "min-h-11 shrink-0 rounded-md bg-accent px-4 text-sm font-medium text-ink"
                     : "min-h-11 shrink-0 rounded-md border border-white/15 px-4 text-sm text-muted hover:bg-white/5 hover:text-white"
+                }
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          {TYPE_FILTERS.map((opt) => {
+            const active = typeFilter === opt.value;
+            return (
+              <button
+                key={opt.value || "all-types"}
+                type="button"
+                onClick={() => setTypeFilter(opt.value)}
+                className={
+                  active
+                    ? "min-h-10 shrink-0 rounded-md border border-accent/50 bg-accent/15 px-3 text-xs font-medium text-accent"
+                    : "min-h-10 shrink-0 rounded-md border border-white/10 px-3 text-xs text-muted hover:bg-white/5 hover:text-white"
                 }
               >
                 {opt.label}
@@ -388,20 +448,21 @@ export function AlertGallery({ cameraName }: { cameraName?: string }) {
         </div>
       )}
 
-      {!loading && !error && alerts.length === 0 && (
+      {!loading && !error && visible.length === 0 && (
         <p className="text-sm text-muted">
           No alerts for <code className="text-accent">{cameraName ?? "this camera"}</code>
-          {incidentFilter ? ` with status ${incidentFilter}` : ""}.
+          {incidentFilter ? ` with status ${incidentFilter}` : ""}
+          {typeFilter ? ` / type ${typeFilter}` : ""}.
         </p>
       )}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {alerts.map((alert) => (
+        {visible.map((alert) => (
           <AlertCard
             key={`${alert.id}-${alert.updated_at ?? alert.incident_status}`}
             alert={alert}
             actor={actor.trim() || "operator"}
-            onChanged={load}
+            onChanged={() => load({ soft: true })}
           />
         ))}
       </div>

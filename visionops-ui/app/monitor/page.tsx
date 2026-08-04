@@ -40,7 +40,8 @@ export default function MonitorPage() {
         <div>
           <h1 className="font-display text-2xl font-semibold">Live Monitor</h1>
           <p className="mt-1 text-sm text-muted">
-            MediaMTX WebRTC (WHEP) + canvas detections overlay.
+            MediaMTX WebRTC (WHEP) + canvas detections overlay. Tune video latency
+            per source so boxes stay locked to motion.
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-3">
