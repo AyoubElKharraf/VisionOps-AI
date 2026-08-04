@@ -58,6 +58,11 @@ function AlertCard({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    setAssignee(alert.assigned_to ?? "");
+    setEvents(alert.events ?? []);
+  }, [alert.id, alert.assigned_to, alert.events, alert.incident_status]);
+
   const run = async (action: () => Promise<Alert>) => {
     try {
       setBusy(true);
@@ -459,7 +464,7 @@ export function AlertGallery({ cameraName }: { cameraName?: string }) {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {visible.map((alert) => (
           <AlertCard
-            key={`${alert.id}-${alert.updated_at ?? alert.incident_status}`}
+            key={alert.id}
             alert={alert}
             actor={actor.trim() || "operator"}
             onChanged={() => load({ soft: true })}

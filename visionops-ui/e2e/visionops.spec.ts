@@ -136,11 +136,18 @@ test("ROI polygon can be created and removed", async ({ page, request }) => {
 
     await page.getByLabel("Zone name").fill(zoneName);
     await page.getByRole("button", { name: "Save ROI" }).click();
-    await expect(page.getByText(zoneName, { exact: true })).toBeVisible();
+    await expect(page.getByText("Zone saved")).toBeVisible();
+    await expect(
+      page.locator("div").filter({ hasText: zoneName }).filter({ hasText: "Delete" }).first(),
+    ).toBeVisible();
 
-    const zoneRow = page.locator("div").filter({ hasText: zoneName }).last();
+    const zoneRow = page
+      .locator("div")
+      .filter({ hasText: zoneName })
+      .filter({ hasText: "Delete" })
+      .first();
     await zoneRow.getByRole("button", { name: "Delete" }).click();
-    await expect(page.getByText(zoneName, { exact: true })).toHaveCount(0);
+    await expect(page.getByText(zoneName)).toHaveCount(0);
   } finally {
     await deleteCamera(request, camera.id);
   }
@@ -169,6 +176,8 @@ test("incident can be assigned, commented and resolved", async ({ page, request 
 
     await selectCameraOnLoad(page, camera.id);
     await page.goto("/alerts");
+    // Default gallery filter is "open"; keep All so assign→acknowledged stays visible.
+    await page.getByRole("button", { name: "All", exact: true }).click();
     const card = page.locator("article").filter({ hasText: message });
     await expect(card).toBeVisible();
     await expect(card).toContainText("open");
@@ -176,16 +185,26 @@ test("incident can be assigned, commented and resolved", async ({ page, request 
     await card.getByRole("button", { name: /Assign · comment · history/i }).click();
     await card.getByLabel("Assignee").fill("e2e-operator");
     await card.getByLabel("Note").fill("E2E assignment");
-    await card.getByRole("button", { name: "Assign" }).click();
-    await expect(card).toContainText("acknowledged");
+    await Promise.all([
+      page.waitForResponse(
+        (res) => res.url().includes("/assign") && res.request().method() === "POST",
+      ),
+      card.getByRole("button", { name: "Assign", exact: true }).click(),
+    ]);
+    await expect(card).toContainText("acknowledged", { timeout: 15_000 });
     await expect(card).toContainText("assigned e2e-operator");
 
     await card.getByPlaceholder("Add a comment").fill("E2E checked");
-    await card.getByRole("button", { name: "Comment" }).click();
+    await card.getByRole("button", { name: "Comment", exact: true }).click();
     await expect(card.getByPlaceholder("Add a comment")).toHaveValue("");
     await card.getByLabel("Note").fill("E2E resolved");
-    await card.getByRole("button", { name: "Resolve" }).click();
-    await expect(card).toContainText("resolved");
+    await Promise.all([
+      page.waitForResponse(
+        (res) => res.url().includes("/resolve") && res.request().method() === "POST",
+      ),
+      card.getByRole("button", { name: "Resolve", exact: true }).click(),
+    ]);
+    await expect(card).toContainText("resolved", { timeout: 15_000 });
     await expect(card).toContainText("Resolution: E2E resolved");
 
     await card.getByRole("button", { name: /history/i }).click();
