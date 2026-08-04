@@ -2,6 +2,8 @@ import { expect, test, type APIRequestContext, type Page } from "@playwright/tes
 
 const API_URL = process.env.PLAYWRIGHT_API_URL ?? "http://127.0.0.1:8001";
 const API_KEY = process.env.VISIONOPS_API_KEY ?? "visionops-dev-key";
+const ADMIN_USER = process.env.VISIONOPS_ADMIN_USERNAME ?? "admin";
+const ADMIN_PASS = process.env.VISIONOPS_ADMIN_PASSWORD ?? "visionops-admin";
 const apiHeaders = { "X-API-Key": API_KEY };
 
 type Camera = { id: string; name: string };
@@ -10,6 +12,29 @@ type Alert = { id: string };
 function unique(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
+
+/** Seed JWT into localStorage before the first navigation (AuthGate requires it). */
+async function authAsAdmin(page: Page, request: APIRequestContext): Promise<void> {
+  const response = await request.post(`${API_URL}/api/v1/auth/login`, {
+    data: { username: ADMIN_USER, password: ADMIN_PASS },
+  });
+  expect(response.ok(), await response.text()).toBeTruthy();
+  const body = (await response.json()) as {
+    access_token: string;
+    user: unknown;
+  };
+  await page.addInitScript(
+    ({ token, user }) => {
+      window.localStorage.setItem("visionops.accessToken", token);
+      window.localStorage.setItem("visionops.authUser", JSON.stringify(user));
+    },
+    { token: body.access_token, user: body.user },
+  );
+}
+
+test.beforeEach(async ({ page, request }) => {
+  await authAsAdmin(page, request);
+});
 
 async function createCamera(request: APIRequestContext, name: string): Promise<Camera> {
   const response = await request.post(`${API_URL}/api/v1/cameras`, {
