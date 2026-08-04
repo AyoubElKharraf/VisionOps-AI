@@ -51,7 +51,7 @@ VisionOps AI turns live camera streams into operational events. It combines low-
 
 ### Live Monitor
 
-WebRTC video and WebSocket detections share the same MediaMTX source. Bounding boxes are projected onto `object-contain` video geometry, while per-track velocity compensates for transport and inference delay. Toggle **Heatmap** to visualize temporal person presence (decaying splat grid from foot points).
+WebRTC video and WebSocket detections share the same MediaMTX source. Bounding boxes are projected onto `object-contain` video geometry, while per-track velocity compensates for transport and inference delay. The toolbar shows sync health (`synced` / `trailing` / `leading` / `stale`), per-mode latency presets, and toggles for **Boxes**, **Heatmap**, and **Extrapolate**.
 
 <p align="center">
   <img src="docs/screenshots/live-monitor.png" alt="Live Monitor with synchronized detections" width="100%">
@@ -75,11 +75,15 @@ Draw resolution-independent intrusion, occupancy, or loitering zones. Occupancy 
 
 ### Alert Gallery
 
-Review evidence, filter by status with chips, acknowledge / resolve with large tap targets (sticky on mobile), assign operators, comment, export a ZIP pack, and inspect history.
+Review evidence, filter by incident status and alert type, acknowledge / resolve with large tap targets (sticky on mobile), assign operators, comment, export a ZIP pack, and inspect history.
 
 <p align="center">
   <img src="docs/screenshots/alert-gallery.png" alt="Alert Gallery with MinIO snapshots" width="100%">
 </p>
+
+### Model registry (admin)
+
+Upload versioned detector or PPE weights to MinIO, activate one artifact per role, then let the engine pull the active files into `WEIGHTS_DIR` when `MODEL_REGISTRY_SYNC=true`. UI: `/models`.
 
 ## Architecture
 
@@ -95,10 +99,12 @@ flowchart LR
     API --> Redis[(Redis)]
     Redis --> Worker[Celery worker]
     Redis --> Beat[Celery beat<br/>retention]
-    Worker --> MinIO[(MinIO<br/>snapshots · clips)]
+    Worker --> MinIO[(MinIO<br/>snapshots · clips · models)]
     API -->|WebSocket detections| Browser
-    API -->|cameras · ROI · incidents · users| Browser
+    API -->|cameras · ROI · incidents · users · models| Browser
     MinIO -->|presigned media URLs| Browser
+    Engine -->|registry sync / download| API
+    API --> MinIO
     API --> Prom[Prometheus]
     Engine --> Prom
     Prom --> Grafana[Grafana]
@@ -108,9 +114,9 @@ flowchart LR
 
 | Component | Technology | Responsibility |
 | --- | --- | --- |
-| `visionops-engine` | Python, YOLOv8, ONNX Runtime, OpenCV, ByteTrack, Shapely | Multi-cam supervisor, detection, tracking, ROI/tripwire, RTSP reconnect |
-| `visionops-backend` | FastAPI, SQLAlchemy, Alembic, Celery, PyJWT | REST/WS API, auth, persistence, notifications, retention jobs |
-| `visionops-ui` | Next.js 15, React 19, Tailwind CSS | Login, dashboard, overlays, admin users |
+| `visionops-engine` | Python, YOLOv8, ONNX Runtime, OpenCV, ByteTrack, Shapely | Multi-cam supervisor, detection, tracking, ROI/tripwire, RTSP reconnect, registry sync, offline eval |
+| `visionops-backend` | FastAPI, SQLAlchemy, Alembic, Celery, PyJWT | REST/WS API, auth, persistence, model registry, notifications, retention jobs |
+| `visionops-ui` | Next.js 15, React 19, Tailwind CSS | Login, dashboard, overlays, admin users & models |
 | Streaming | MediaMTX, FFmpeg | RTSP ingest/publish, WebRTC/WHEP and HLS delivery |
 | Data | PostgreSQL, Redis, MinIO | Relational data, task queue and object storage |
 | Observability | Prometheus, Grafana | Metrics scrape and provisioned overview dashboard |
@@ -236,6 +242,7 @@ CAMERA_NAME=demo-camera
 VIDEO_SOURCE=rtsp://mediamtx:8554/cam1
 YOLO_CONF=0.25
 USE_ONNX=true
+MODEL_REGISTRY_SYNC=true
 MINIO_PUBLIC_ENDPOINT=127.0.0.1:9001
 ```
 
@@ -252,8 +259,8 @@ VisionOps supports dual authentication:
 | Detection WebSocket | `?token=<JWT>` or `?api_key=` | Browsers cannot set custom headers |
 
 - `/health`, `GET /metrics`, and `GET /api/v1/auth/status` remain public (or scrape-friendly).
-- **admin**: camera CRUD, user creation (UI `/users`), alert delete, retention trigger, full incident workflow.
-- **operator**: read cameras/monitor/ROI, run incident workflow; no camera CRUD or user management.
+- **admin**: camera CRUD, user creation (UI `/users`), model registry (`/models`), alert delete, retention trigger, full incident workflow.
+- **operator**: read cameras/monitor/ROI, run incident workflow; no camera CRUD, user management, or model activation.
 - On first boot with `VISIONOPS_JWT_SECRET` set and an empty `users` table, the backend creates the bootstrap admin (`admin` / `visionops-admin` by default).
 
 ### Observability
@@ -435,8 +442,8 @@ Every push and pull request to `main` runs **VisionOps CI** on GitHub Actions:
 
 | Job | Gate |
 | --- | --- |
-| Engine | Ruff + unit tests (tracker, ROI, ONNX, reconnect, multi-cam) |
-| Backend | Ruff + API tests against Postgres (auth, incidents, metrics, retention) |
+| Engine | Ruff + unit tests (tracker, ROI, ONNX, reconnect, multi-cam, eval, registry sync) |
+| Backend | Ruff + API tests against Postgres (auth, incidents, metrics, retention, model registry) |
 | UI | Unit tests, TypeScript, production build |
 | E2E | Playwright Chromium against a disposable `docker compose` stack (login JWT + cameras/ROI/incidents) |
 
@@ -446,7 +453,7 @@ Current local baseline:
 
 - **Engine:** 48 tests — ByteTrack, ROI analytics, heatmap, PPE, ONNX, RTSP reconnect, multi-cam supervisor, model registry sync, offline eval (boxes + alerts)
 - **Backend:** 42 tests — JWT/API-key auth, metrics, notifications, retention, incidents, ZIP export, model registry
-- **UI:** 15 unit tests — WHEP security, geometry, stream paths, overlay sync
+- **UI:** 17 unit tests — WHEP security, geometry, stream paths, overlay sync
 - **E2E:** 3 Playwright scenarios — camera CRUD, ROI CRUD, incident workflow (admin JWT injected)
 
 Failed E2E runs keep screenshots, video, traces, and an HTML report as CI artifacts.
@@ -490,13 +497,16 @@ VisionOps_AI/
 ├── visionops-engine/
 │   ├── multi_cam_runner.py      # one worker process per active camera
 │   ├── stream_capture.py        # RTSP reconnect / backoff
+│   ├── model_registry_sync.py   # pull active weights from API/MinIO
+│   ├── eval_harness.py          # offline mAP / alert FAR
+│   ├── eval/fixtures/           # mini detection + alert eval sets
 │   ├── metrics_server.py
 │   ├── demo_roi.py
 │   ├── byte_tracker.py
 │   ├── run_engine.sh            # ENGINE_MODE=multi|single entrypoint
 │   └── tests/
 ├── visionops-ui/
-│   ├── app/                     # login, users, cameras, monitor, roi, alerts
+│   ├── app/                     # login, users, models, cameras, monitor, roi, alerts
 │   ├── components/
 │   ├── e2e/
 │   └── lib/
