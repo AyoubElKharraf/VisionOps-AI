@@ -5,6 +5,9 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/AyoubElKharraf/VisionOps-AI/actions/workflows/ci.yml">
+    <img alt="VisionOps CI" src="https://github.com/AyoubElKharraf/VisionOps-AI/actions/workflows/ci.yml/badge.svg">
+  </a>
   <img alt="Python 3.11+" src="https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white">
   <img alt="FastAPI" src="https://img.shields.io/badge/API-FastAPI-009688?logo=fastapi&logoColor=white">
   <img alt="Next.js" src="https://img.shields.io/badge/UI-Next.js%2015-000000?logo=nextdotjs&logoColor=white">
@@ -391,14 +394,27 @@ npm install
 npm run dev
 ```
 
-## Testing
+## Testing & CI
 
-Current validation baseline:
+Every push and pull request to `main` runs **VisionOps CI** on GitHub Actions:
+
+| Job | Gate |
+| --- | --- |
+| Engine | Ruff + unit tests (tracker, ROI, ONNX, reconnect, multi-cam) |
+| Backend | Ruff + API tests against Postgres (auth, incidents, metrics, retention) |
+| UI | Unit tests, TypeScript, production build |
+| E2E | Playwright Chromium against a disposable `docker compose` stack (login JWT + cameras/ROI/incidents) |
+
+Latest status: [![VisionOps CI](https://github.com/AyoubElKharraf/VisionOps-AI/actions/workflows/ci.yml/badge.svg)](https://github.com/AyoubElKharraf/VisionOps-AI/actions/workflows/ci.yml)
+
+Current local baseline:
 
 - **Engine:** 23 tests — ByteTrack, ROI/tripwire, ONNX, RTSP reconnect, multi-cam supervisor
 - **Backend:** 39 tests — JWT/API-key auth, metrics, notifications, retention, cameras/alerts lifecycle
 - **UI:** 15 unit tests — WHEP security, geometry, stream paths, overlay sync
-- **E2E:** 3 Playwright scenarios — camera CRUD, ROI CRUD, incident workflow (JWT session injected when enabled)
+- **E2E:** 3 Playwright scenarios — camera CRUD, ROI CRUD, incident workflow (admin JWT injected)
+
+Failed E2E runs keep screenshots, video, traces, and an HTML report as CI artifacts.
 
 ### Run locally
 
@@ -420,8 +436,6 @@ npx tsc --noEmit
 npm run test:e2e:install
 npm run test:e2e
 ```
-
-GitHub Actions runs engine lint/tests, backend API tests, UI unit/type/build checks, and Playwright Chromium against a disposable Docker stack. Failed E2E runs retain screenshots, video, traces, and an HTML report.
 
 ## Repository layout
 
