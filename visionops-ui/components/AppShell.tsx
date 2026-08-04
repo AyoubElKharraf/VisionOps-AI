@@ -98,7 +98,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             Phase 5
           </span>
         </header>
-        <main className="px-6 py-6">{children}</main>
+        <main className="px-4 py-5 pb-8 sm:px-6 sm:py-6">{children}</main>
       </div>
     </div>
   );

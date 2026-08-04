@@ -38,6 +38,7 @@ VisionOps AI turns live camera streams into operational events. It combines low-
 - **Alert evidence** with snapshots and clips processed asynchronously and stored in MinIO, plus one-click **ZIP incident export** (media + timeline).
 - **Dual authentication**: service `X-API-Key` for the engine, JWT sessions + roles (`admin` / `operator`) for humans.
 - **Admin user management** UI at `/users` (create operators and admins).
+- **Mobile-friendly alert triage** on `/alerts` with sticky Ack/Resolve actions and filter chips.
 - **Notifications** via webhook, Slack, and/or SMTP email on lifecycle events.
 - **Retention & quotas** for MinIO media and resolved incidents (Celery Beat).
 - **Observability** with Prometheus metrics and a provisioned Grafana dashboard.
@@ -72,7 +73,7 @@ Draw resolution-independent intrusion, occupancy, or loitering zones. Occupancy 
 
 ### Alert Gallery
 
-Review evidence, filter incidents by camera/status, assign operators, add comments, resolve events, and inspect their history.
+Review evidence, filter by status with chips, acknowledge / resolve with large tap targets (sticky on mobile), assign operators, comment, export a ZIP pack, and inspect history.
 
 <p align="center">
   <img src="docs/screenshots/alert-gallery.png" alt="Alert Gallery with MinIO snapshots" width="100%">
@@ -499,6 +500,7 @@ VisionOps_AI/
 - [x] Live presence heatmap overlay on the monitor
 - [x] PPE / hard-hat must-wear zone alerts
 - [x] Incident ZIP evidence export (snapshot/clip/timeline)
+- [x] Mobile-friendly alert triage (sticky Ack/Resolve)
 
 ## License
 

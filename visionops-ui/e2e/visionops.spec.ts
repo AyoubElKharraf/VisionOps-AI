@@ -173,6 +173,7 @@ test("incident can be assigned, commented and resolved", async ({ page, request 
     await expect(card).toBeVisible();
     await expect(card).toContainText("open");
 
+    await card.getByRole("button", { name: /Assign · comment · history/i }).click();
     await card.getByLabel("Assignee").fill("e2e-operator");
     await card.getByLabel("Note").fill("E2E assignment");
     await card.getByRole("button", { name: "Assign" }).click();

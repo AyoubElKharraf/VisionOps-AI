@@ -11,11 +11,12 @@ export default function AlertsPage() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
         <div>
           <h1 className="font-display text-2xl font-semibold">Alert Gallery</h1>
           <p className="mt-1 text-sm text-muted">
-            Incidents from PostgreSQL with MinIO snapshot / clip links.
+            Triage incidents on phone or desktop — ack / resolve with large tap
+            targets.
           </p>
         </div>
         <CameraSelect
