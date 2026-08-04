@@ -148,6 +148,13 @@ export type ZoneOccupancy = {
   schedule_active?: boolean;
 };
 
+export type HeatmapSnapshot = {
+  cols: number;
+  rows: number;
+  peak: number;
+  cells: number[][]; // [col, row, intensity 0..1]
+};
+
 export type DetectionFrame = {
   camera_id: string | null;
   camera_name: string;
@@ -162,6 +169,7 @@ export type DetectionFrame = {
   boxes: DetectionBox[];
   zone_alerts: string[];
   zone_occupancy?: ZoneOccupancy[];
+  heatmap?: HeatmapSnapshot | null;
 };
 
 export type AuthUserRole = "admin" | "operator";

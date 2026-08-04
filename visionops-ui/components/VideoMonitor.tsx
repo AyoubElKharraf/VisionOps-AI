@@ -49,6 +49,7 @@ export function VideoMonitor({
   );
   const [videoLatencyMs, setVideoLatencyMs] = useState(DEFAULT_VIDEO_LATENCY_MS);
   const [leadMs, setLeadMs] = useState(0);
+  const [showHeatmap, setShowHeatmap] = useState(true);
   const velocitiesRef = useRef<Map<number, TrackVelocity>>(new Map());
   const previousFrameRef = useRef<DetectionFrame | null>(null);
 
@@ -202,6 +203,31 @@ export function VideoMonitor({
       const srcH = frame?.height || video?.videoHeight || h;
       const videoRect = objectContainRect(w, h, srcW, srcH);
 
+      if (showHeatmap && frame?.heatmap?.cells?.length) {
+        const cols = Math.max(1, frame.heatmap.cols || 64);
+        const rows = Math.max(1, frame.heatmap.rows || 36);
+        const cellW = videoRect.width / cols;
+        const cellH = videoRect.height / rows;
+        for (const cell of frame.heatmap.cells) {
+          const [cx, cy, intensity] = cell;
+          if (
+            typeof cx !== "number" ||
+            typeof cy !== "number" ||
+            typeof intensity !== "number"
+          ) {
+            continue;
+          }
+          const t = Math.max(0, Math.min(1, intensity));
+          ctx.fillStyle = heatColor(t);
+          ctx.fillRect(
+            videoRect.offsetX + cx * cellW,
+            videoRect.offsetY + cy * cellH,
+            Math.ceil(cellW) + 0.5,
+            Math.ceil(cellH) + 0.5,
+          );
+        }
+      }
+
       for (const zone of zones) {
         if (!zone.points?.length) continue;
         ctx.beginPath();
@@ -315,7 +341,7 @@ export function VideoMonitor({
     };
     animationFrame = window.requestAnimationFrame(render);
     return () => window.cancelAnimationFrame(animationFrame);
-  }, [frame, zones, videoLatencyMs]);
+  }, [frame, zones, videoLatencyMs, showHeatmap]);
 
   return (
     <div className={className}>
@@ -344,6 +370,18 @@ export function VideoMonitor({
         >
           Detections WS: {wsState}
         </span>
+        <label className="flex items-center gap-2 text-muted">
+          <input
+            type="checkbox"
+            checked={showHeatmap}
+            onChange={(e) => setShowHeatmap(e.target.checked)}
+            className="rounded border-white/20"
+          />
+          Heatmap
+          {frame?.heatmap?.cells?.length
+            ? ` (${frame.heatmap.cells.length})`
+            : ""}
+        </label>
         {frame?.infer_ms != null && (
           <span className="text-muted">infer {frame.infer_ms.toFixed(1)} ms</span>
         )}
@@ -397,4 +435,13 @@ export function VideoMonitor({
       </div>
     </div>
   );
+}
+
+/** Blue → cyan → yellow → red, transparent at low intensity. */
+function heatColor(t: number): string {
+  const r = Math.round(255 * Math.min(1, Math.max(0, t * 2 - 0.2)));
+  const g = Math.round(255 * Math.min(1, Math.max(0, t < 0.5 ? t * 2 : 2 - t * 2)));
+  const b = Math.round(255 * Math.min(1, Math.max(0, 1 - t * 1.4)));
+  const a = 0.15 + t * 0.55;
+  return `rgba(${r},${g},${b},${a.toFixed(3)})`;
 }

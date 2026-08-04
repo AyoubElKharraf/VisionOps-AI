@@ -115,6 +115,7 @@ class AlertClient:
         source_position_ms: float | None = None,
         zone_alerts: list[str] | None = None,
         zone_occupancy: list[dict] | None = None,
+        heatmap: dict | None = None,
         camera_name: str = "demo-camera",
     ) -> bool:
         """
@@ -135,6 +136,7 @@ class AlertClient:
             "boxes": boxes,
             "zone_alerts": zone_alerts or [],
             "zone_occupancy": zone_occupancy or [],
+            "heatmap": heatmap,
         }
         self._det_future = self._pool.submit(self._post_detections, payload)
         return True

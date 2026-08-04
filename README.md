@@ -25,7 +25,7 @@ VisionOps AI turns live camera streams into operational events. It combines low-
 ## Highlights
 
 - **Low-latency live monitoring** through MediaMTX WebRTC/WHEP, with HLS and MP4 fallbacks.
-- **Real-time detection overlay** synchronized with the rendered video and configurable latency compensation.
+- **Real-time detection overlay** synchronized with the rendered video, configurable latency compensation, and an optional **presence heatmap**.
 - **Stable object identities** using ByteTrack with Kalman-filtered boxes and short-occlusion recovery.
 - **Multi-camera management** with camera CRUD in the UI and **one inference worker per active camera**.
 - **RTSP resilience** with exponential backoff reconnect when live streams drop.
@@ -47,7 +47,7 @@ VisionOps AI turns live camera streams into operational events. It combines low-
 
 ### Live Monitor
 
-WebRTC video and WebSocket detections share the same MediaMTX source. Bounding boxes are projected onto `object-contain` video geometry, while per-track velocity compensates for transport and inference delay.
+WebRTC video and WebSocket detections share the same MediaMTX source. Bounding boxes are projected onto `object-contain` video geometry, while per-track velocity compensates for transport and inference delay. Toggle **Heatmap** to visualize temporal person presence (decaying splat grid from foot points).
 
 <p align="center">
   <img src="docs/screenshots/live-monitor.png" alt="Live Monitor with synchronized detections" width="100%">
@@ -412,7 +412,7 @@ Latest status: [![VisionOps CI](https://github.com/AyoubElKharraf/VisionOps-AI/a
 
 Current local baseline:
 
-- **Engine:** 29 tests — ByteTrack, ROI/tripwire/occupancy/loitering/schedules, ONNX, RTSP reconnect, multi-cam supervisor
+- **Engine:** 31 tests — ByteTrack, ROI analytics, heatmap, ONNX, RTSP reconnect, multi-cam supervisor
 - **Backend:** 39 tests — JWT/API-key auth, metrics, notifications, retention, cameras/alerts lifecycle
 - **UI:** 15 unit tests — WHEP security, geometry, stream paths, overlay sync
 - **E2E:** 3 Playwright scenarios — camera CRUD, ROI CRUD, incident workflow (admin JWT injected)
@@ -495,6 +495,7 @@ VisionOps_AI/
 - [x] Zone occupancy counting (`count/capacity`, over-capacity alerts)
 - [x] Loitering / dwell-time zone alerts
 - [x] Scheduled ROI rule windows (UTC hours + weekdays)
+- [x] Live presence heatmap overlay on the monitor
 
 ## License
 

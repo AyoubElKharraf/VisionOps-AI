@@ -23,6 +23,7 @@ from alert_client import AlertClient
 from byte_tracker import ByteTrackAdapter
 from metrics_server import record_alert_posted, record_frame, start_metrics_server
 from onnx_engine import COCO_NAMES, ONNXInferenceEngine
+from presence_heatmap import PresenceHeatmap
 from roi_manager import (
     CrossingDirection,
     Detection,
@@ -321,6 +322,7 @@ def run(args: argparse.Namespace) -> int:
     stream_every = max(1, args.stream_every)
     roi_refresh_seconds = max(1.0, args.roi_refresh_seconds)
     next_roi_refresh_at = 0.0
+    heatmap = PresenceHeatmap()
 
     logger.info(
         "Running ROI demo | source=%s | tracker=%s | reconnect=%s | max_frames=%d | post_alerts=%s | stream=%s (every %d) | write_mp4=%s",
@@ -371,6 +373,7 @@ def run(args: argparse.Namespace) -> int:
             loiters = roi.check_loitering(detections, now=time.monotonic(), wall_clock=wall)
             occupancy = roi.zone_occupancy(detections, now=time.monotonic(), wall_clock=wall)
             crossings = roi.check_line_crossings(detections)
+            heatmap.update(detections, frame_width=width, frame_height=height)
 
             if (
                 alert_client is not None
@@ -402,6 +405,7 @@ def run(args: argparse.Namespace) -> int:
                     zone_alerts=[a.message for a in alerts]
                     + [loiter.message for loiter in loiters],
                     zone_occupancy=[o.model_dump() for o in occupancy],
+                    heatmap=heatmap.snapshot(),
                     camera_name=args.camera_name,
                 )
 

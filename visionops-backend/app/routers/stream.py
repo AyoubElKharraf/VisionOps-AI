@@ -82,6 +82,14 @@ class ZoneOccupancySnapshot(BaseModel):
     schedule_active: bool = True
 
 
+class HeatmapSnapshot(BaseModel):
+    cols: int = 64
+    rows: int = 36
+    peak: float = 0.0
+    # Sparse cells: [col, row, intensity 0..1]
+    cells: list[list[float]] = Field(default_factory=list)
+
+
 class DetectionFrame(BaseModel):
     camera_id: uuid.UUID | None = None
     camera_name: str = "demo-camera"
@@ -95,6 +103,7 @@ class DetectionFrame(BaseModel):
     boxes: list[DetectionBox] = Field(default_factory=list)
     zone_alerts: list[str] = Field(default_factory=list)
     zone_occupancy: list[ZoneOccupancySnapshot] = Field(default_factory=list)
+    heatmap: HeatmapSnapshot | None = None
 
 
 def _resolve_camera_id(db: Session, camera_id: uuid.UUID | None, camera_name: str | None) -> uuid.UUID | None:
