@@ -19,7 +19,7 @@ import numpy as np
 import requests
 from ultralytics import YOLO
 
-from stream_capture import RobustCapture, open_capture, parse_reconnect_args
+from stream_capture import RobustCapture, parse_reconnect_args
 
 logging.basicConfig(
     level=logging.INFO,

@@ -188,7 +188,6 @@ def client(monkeypatch):
     get_settings.cache_clear()
     monkeypatch.setattr("app.main.run_migrations", lambda: None)
     monkeypatch.setattr("app.main.ensure_bucket", lambda: "test-bucket")
-    monkeypatch.setattr("app.routers.alerts.ensure_bucket", lambda: "test-bucket")
     monkeypatch.setattr(
         "app.routers.alerts.process_alert_media.delay",
         lambda *_args, **_kwargs: None,

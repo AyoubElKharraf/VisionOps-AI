@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.auth import require_auth, require_roles
 from app.database import get_db
 from app.metrics import record_alert_created
-from app.minio_client import ensure_bucket, presigned_get_url, delete_object
+from app.minio_client import presigned_get_url, delete_object
 from app.models import (
     Alert,
     AlertEvent,
@@ -104,7 +104,6 @@ def _get_alert(db: Session, alert_id: uuid.UUID, *, with_events: bool = False) -
 
 @router.post("", response_model=AlertRead, status_code=201)
 def create_alert(payload: AlertCreate, db: Session = Depends(get_db)) -> AlertRead:
-    ensure_bucket()
     camera_id = _resolve_camera(db, payload)
 
     alert = Alert(

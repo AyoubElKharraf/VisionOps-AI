@@ -33,10 +33,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
           pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision
-          pip install numpy opencv-python-headless shapely pydantic onnxruntime ultralytics lap
+          pip install numpy opencv-python-headless shapely pydantic onnxruntime ultralytics lap prometheus-client
 
       - name: Ruff lint
-        run: ruff check main.py demo_roi.py byte_tracker.py roi_manager.py onnx_engine.py export_onnx.py alert_client.py tests
+        run: >
+          ruff check main.py demo_roi.py byte_tracker.py roi_manager.py
+          onnx_engine.py export_onnx.py alert_client.py stream_capture.py
+          metrics_server.py multi_cam_runner.py tests
 
       - name: Pytest
         run: pytest -q tests
