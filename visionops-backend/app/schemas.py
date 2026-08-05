@@ -149,6 +149,8 @@ class AuthStatus(BaseModel):
     auth_enforced: bool
     api_key_enabled: bool
     jwt_enabled: bool
+    environment: str = "development"
+    insecure_findings: list[str] = Field(default_factory=list)
 
 
 class ModelArtifactRead(BaseModel):

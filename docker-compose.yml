@@ -129,6 +129,9 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-visionops_minio_secret}
       MINIO_BUCKET: ${MINIO_BUCKET:-visionops-media}
       MINIO_SECURE: ${MINIO_SECURE:-false}
+      VISIONOPS_ENV: ${VISIONOPS_ENV:-development}
+      VISIONOPS_STRICT_SECRETS: ${VISIONOPS_STRICT_SECRETS:-false}
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
       VISIONOPS_API_KEY: ${VISIONOPS_API_KEY:-visionops-dev-key}
       VISIONOPS_JWT_SECRET: ${VISIONOPS_JWT_SECRET:-visionops-dev-jwt-secret-change-me}
       VISIONOPS_JWT_EXPIRE_MINUTES: ${VISIONOPS_JWT_EXPIRE_MINUTES:-480}

@@ -17,6 +17,7 @@ from app.config import get_settings
 from app.database import get_db
 from app.models import User, UserRole
 from app.schemas import AuthStatus, LoginRequest, TokenResponse, UserCreate, UserRead
+from app.security import evaluate_security
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -24,10 +25,13 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 @router.get("/status", response_model=AuthStatus)
 def auth_status() -> AuthStatus:
     settings = get_settings()
+    findings = evaluate_security(settings)
     return AuthStatus(
         auth_enforced=auth_enforced(),
         api_key_enabled=bool(settings.visionops_api_key),
         jwt_enabled=bool(settings.visionops_jwt_secret),
+        environment=(settings.visionops_env or "development").strip().lower(),
+        insecure_findings=[f.code for f in findings if f.level in {"error", "warning"}],
     )
 
 

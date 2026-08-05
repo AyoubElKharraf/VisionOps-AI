@@ -51,7 +51,7 @@ VisionOps AI turns live camera streams into operational events. It combines low-
 
 ### Live Monitor
 
-WebRTC video and WebSocket detections share the same MediaMTX source. Bounding boxes are projected onto `object-contain` video geometry, while per-track velocity compensates for transport and inference delay. The toolbar shows sync health (`synced` / `trailing` / `leading` / `stale`), per-mode latency presets, and toggles for **Boxes**, **Heatmap**, and **Extrapolate**.
+WebRTC video and WebSocket detections share the same MediaMTX source. Bounding boxes are projected onto `object-contain` video geometry, while per-track velocity compensates for transport and inference delay. The toolbar shows sync health (`synced` / `trailing` / `leading` / `stale`), per-mode latency presets, and toggles for **Boxes**, **Heatmap**, and **Extrapolate**. Switch **Single** / **Grid** for a multi-cam live grille (shared detections WebSocket, per-tile WHEP/HLS); click a tile to focus the full monitor.
 
 <p align="center">
   <img src="docs/screenshots/live-monitor.png" alt="Live Monitor with synchronized detections" width="100%">
@@ -248,6 +248,25 @@ MINIO_PUBLIC_ENDPOINT=127.0.0.1:9001
 
 The included values are for **local development only**. Use strong, externally managed secrets and HTTPS in production.
 
+### Production hardening checklist
+
+Set `VISIONOPS_ENV=production` before any shared or internet-facing deploy. In that mode the backend **refuses to start** if secrets match known development defaults or CORS stays on `*`.
+
+| Check | Action |
+| --- | --- |
+| Environment | `VISIONOPS_ENV=production` (or `VISIONOPS_STRICT_SECRETS=true` to dry-run locally) |
+| Service API key | Generate a long random `VISIONOPS_API_KEY` (≥ 24 chars); never reuse `visionops-dev-key` |
+| JWT signing secret | Generate a long random `VISIONOPS_JWT_SECRET` (≥ 32 chars) |
+| Bootstrap admin | Set a strong `VISIONOPS_ADMIN_PASSWORD` (≥ 12 chars) before first boot |
+| Database / MinIO | Rotate `POSTGRES_PASSWORD` / `MINIO_ROOT_PASSWORD` away from compose defaults |
+| CORS | `CORS_ORIGINS=https://your-ui.example.com` (comma-separated; not `*`) |
+| TLS | Terminate HTTPS in front of UI/API; set `MINIO_SECURE=true` when MinIO is remote |
+| Grafana | Change `GRAFANA_ADMIN_PASSWORD` from `admin` |
+| Session TTL | Prefer `VISIONOPS_JWT_EXPIRE_MINUTES=60` (or similar) over multi-day tokens |
+| Auth status | `GET /api/v1/auth/status` reports `environment` + `insecure_findings` codes |
+
+Local/CI keep `VISIONOPS_ENV=development` so default keys still work; the API logs **warnings** for weak values without blocking startup.
+
 ### Authentication
 
 VisionOps supports dual authentication:
@@ -261,7 +280,7 @@ VisionOps supports dual authentication:
 - `/health`, `GET /metrics`, and `GET /api/v1/auth/status` remain public (or scrape-friendly).
 - **admin**: camera CRUD, user creation (UI `/users`), model registry (`/models`), alert delete, retention trigger, full incident workflow.
 - **operator**: read cameras/monitor/ROI, run incident workflow; no camera CRUD, user management, or model activation.
-- On first boot with `VISIONOPS_JWT_SECRET` set and an empty `users` table, the backend creates the bootstrap admin (`admin` / `visionops-admin` by default).
+- On first boot with `VISIONOPS_JWT_SECRET` set and an empty `users` table, the backend creates the bootstrap admin (`admin` / `visionops-admin` by default in development; production refuses weak bootstrap passwords).
 
 ### Observability
 
@@ -452,7 +471,7 @@ Latest status: [![VisionOps CI](https://github.com/AyoubElKharraf/VisionOps-AI/a
 Current local baseline:
 
 - **Engine:** 48 tests — ByteTrack, ROI analytics, heatmap, PPE, ONNX, RTSP reconnect, multi-cam supervisor, model registry sync, offline eval (boxes + alerts)
-- **Backend:** 42 tests — JWT/API-key auth, metrics, notifications, retention, incidents, ZIP export, model registry
+- **Backend:** 47 tests — JWT/API-key auth, metrics, notifications, retention, incidents, ZIP export, model registry, production secret hardening
 - **UI:** 17 unit tests — WHEP security, geometry, stream paths, overlay sync
 - **E2E:** 3 Playwright scenarios — camera CRUD, ROI CRUD, incident workflow (admin JWT injected)
 
@@ -544,6 +563,8 @@ VisionOps_AI/
 - [x] Model registry & versioning (MinIO artifacts, activate per role, engine sync)
 - [x] Offline eval harness (mAP@0.5 + false-alarm rate on labeled datasets)
 - [x] Alert-level eval (ROI intrusion / capacity / loitering FAR vs GT)
+- [x] Production hardening guards (env, weak-secret refusal, CORS allow-list)
+- [x] Multi-cam live grid (shared WS fan-out, per-tile streams, focus → single)
 
 ## License
 

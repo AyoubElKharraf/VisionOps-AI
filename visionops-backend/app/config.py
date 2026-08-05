@@ -14,6 +14,12 @@ class Settings(BaseSettings):
 
     app_name: str = "VisionOps AI Backend"
     api_prefix: str = "/api/v1"
+    # development | production — production refuses weak/default secrets at startup.
+    visionops_env: str = "development"
+    # When true, enforce production secret rules even if VISIONOPS_ENV=development.
+    visionops_strict_secrets: bool = False
+    # Comma-separated browser origins. Use * only for local/dev.
+    cors_origins: str = "*"
     # Empty = auth disabled (local/CI). Set VISIONOPS_API_KEY to enforce X-API-Key.
     visionops_api_key: str = ""
     # Human JWT sessions (dashboard). Leave empty to disable JWT login.

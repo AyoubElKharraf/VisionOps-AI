@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.auth import hash_password
 from app.config import Settings
 from app.models import User, UserRole
+from app.security import KNOWN_INSECURE_VALUES, is_production
 
 logger = logging.getLogger("visionops-backend")
 
@@ -24,6 +25,12 @@ def ensure_bootstrap_admin(db: Session, settings: Settings) -> None:
     password = settings.visionops_admin_password or "visionops-admin"
     if len(password) < 8:
         logger.warning("Bootstrap admin password is shorter than 8 characters")
+    if is_production(settings) and (
+        len(password) < 12 or password.strip().lower() in KNOWN_INSECURE_VALUES
+    ):
+        raise RuntimeError(
+            "Refusing to bootstrap admin with a weak VISIONOPS_ADMIN_PASSWORD in production"
+        )
 
     admin = User(
         username=username,

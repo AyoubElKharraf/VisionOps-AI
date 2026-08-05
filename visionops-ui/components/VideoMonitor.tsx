@@ -30,6 +30,12 @@ type Props = {
   zones?: RoiZone[];
   cameraName?: string;
   className?: string;
+  /** Compact chrome for multi-cam grid tiles. */
+  compact?: boolean;
+  /** When set, skip the local detections WebSocket and render this frame. */
+  externalFrame?: DetectionFrame | null;
+  externalWsState?: "connecting" | "live" | "offline";
+  onFocus?: () => void;
 };
 
 export function VideoMonitor({
@@ -40,6 +46,10 @@ export function VideoMonitor({
   zones = [],
   cameraName = "demo-camera",
   className,
+  compact = false,
+  externalFrame,
+  externalWsState,
+  onFocus,
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -58,9 +68,10 @@ export function VideoMonitor({
   const [syncLabel, setSyncLabel] = useState<"synced" | "trailing" | "leading" | "stale">(
     "synced",
   );
-  const [showHeatmap, setShowHeatmap] = useState(true);
+  const [showHeatmap, setShowHeatmap] = useState(!compact);
   const [showBoxes, setShowBoxes] = useState(true);
   const [extrapolate, setExtrapolate] = useState(true);
+  const useExternalFeed = externalFrame !== undefined;
   const velocitiesRef = useRef<Map<number, TrackVelocity>>(new Map());
   const previousFrameRef = useRef<DetectionFrame | null>(null);
   const leadMsRef = useRef(0);
@@ -193,6 +204,19 @@ export function VideoMonitor({
   }, [mode, hlsUrl, videoSrc, whepUrl]);
 
   useEffect(() => {
+    if (!useExternalFeed) return;
+    if (!externalFrame) {
+      setFrame(null);
+      return;
+    }
+    if (externalFrame.camera_name !== cameraName) return;
+    velocitiesRef.current = trackVelocities(previousFrameRef.current, externalFrame);
+    previousFrameRef.current = externalFrame;
+    setFrame(externalFrame);
+  }, [useExternalFeed, externalFrame, cameraName]);
+
+  useEffect(() => {
+    if (useExternalFeed) return;
     let ws: WebSocket | null = null;
     let closed = false;
     let retry: ReturnType<typeof setTimeout> | undefined;
@@ -233,7 +257,7 @@ export function VideoMonitor({
       if (retry) clearTimeout(retry);
       ws?.close();
     };
-  }, [cameraName]);
+  }, [cameraName, useExternalFeed]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -412,6 +436,63 @@ export function VideoMonitor({
         ? "text-red-300"
         : "text-amber-300";
 
+  const feedState = useExternalFeed ? (externalWsState ?? "live") : wsState;
+
+  if (compact) {
+    return (
+      <div className={className}>
+        <div
+          role={onFocus ? "button" : undefined}
+          tabIndex={onFocus ? 0 : undefined}
+          onClick={onFocus}
+          onKeyDown={(e) => {
+            if (!onFocus) return;
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              onFocus();
+            }
+          }}
+          className="group relative block w-full cursor-pointer overflow-hidden rounded-lg border border-white/10 bg-black/60 text-left transition hover:border-accent/40"
+        >
+          <div ref={wrapRef} className="relative aspect-video">
+            <video
+              ref={videoRef}
+              className="absolute inset-0 h-full w-full object-contain"
+              muted
+              playsInline
+              autoPlay
+            />
+            <canvas
+              ref={canvasRef}
+              className="pointer-events-none absolute inset-0 h-full w-full"
+            />
+            <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 bg-gradient-to-b from-black/70 to-transparent p-2">
+              <div>
+                <p className="font-display text-sm font-semibold text-white">
+                  {cameraName}
+                </p>
+                <p className="text-[11px] text-white/70">
+                  {streamState === "live" ? "video live" : streamState}
+                  {" · "}
+                  dets {feedState}
+                  {frame ? ` · ${frame.boxes.length} box` : ""}
+                </p>
+              </div>
+              <span className="rounded bg-black/50 px-2 py-1 text-[11px] text-accent opacity-0 transition group-hover:opacity-100">
+                Focus
+              </span>
+            </div>
+            {videoError && (
+              <p className="absolute bottom-2 left-2 right-2 rounded bg-black/70 px-2 py-1 text-[11px] text-amber-200">
+                {videoError}
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={className}>
       <div className="mb-3 flex flex-wrap items-center gap-3 text-xs">
@@ -430,14 +511,14 @@ export function VideoMonitor({
         </span>
         <span
           className={
-            wsState === "live"
+            feedState === "live"
               ? "text-accent"
-              : wsState === "connecting"
+              : feedState === "connecting"
                 ? "text-amber-300"
                 : "text-red-300"
           }
         >
-          Detections WS: {wsState}
+          Detections WS: {feedState}
         </span>
         {frame && (
           <span className={syncColor}>

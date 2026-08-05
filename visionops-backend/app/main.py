@@ -15,6 +15,7 @@ from app.metrics import PrometheusMiddleware, metrics_response
 from app.minio_client import ensure_bucket
 from app.routers import alerts, auth, cameras, models, notifications, retention
 from app.routers import stream as stream_router
+from app.security import assert_secure_startup, cors_origin_list, evaluate_security, is_production
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 logger = logging.getLogger("visionops-backend")
@@ -28,9 +29,10 @@ app = FastAPI(
 )
 
 app.add_middleware(PrometheusMiddleware)
+_cors_origins = cors_origin_list(settings)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -48,6 +50,13 @@ app.include_router(stream_router.ws_router, prefix=settings.api_prefix)
 
 @app.on_event("startup")
 def on_startup() -> None:
+    findings = evaluate_security(settings)
+    for finding in findings:
+        log = logger.error if finding.level == "error" else logger.warning
+        log("security[%s] %s", finding.code, finding.message)
+    if is_production(settings) or settings.visionops_strict_secrets:
+        assert_secure_startup(settings)
+
     if settings.visionops_api_key:
         logger.info("Service API-key auth enabled for %s/*", settings.api_prefix)
     if settings.visionops_jwt_secret:
@@ -56,6 +65,11 @@ def on_startup() -> None:
         logger.warning(
             "Neither VISIONOPS_API_KEY nor VISIONOPS_JWT_SECRET is set — /api/v1 is open."
         )
+    logger.info(
+        "Environment=%s | CORS origins=%s",
+        settings.visionops_env,
+        ",".join(_cors_origins),
+    )
 
     run_migrations()
     try:
@@ -77,7 +91,12 @@ def on_startup() -> None:
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "service": "visionops-backend", "phase": "5"}
+    return {
+        "status": "ok",
+        "service": "visionops-backend",
+        "phase": "5",
+        "environment": settings.visionops_env,
+    }
 
 
 @app.get("/metrics")
