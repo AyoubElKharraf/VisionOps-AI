@@ -57,6 +57,22 @@ WebRTC video and WebSocket detections share the same MediaMTX source. Bounding b
   <img src="docs/screenshots/live-monitor.png" alt="Live Monitor with synchronized detections" width="100%">
 </p>
 
+### Multi-cam live grid
+
+Seed three demo cameras and open the Live Monitor **Grid** layout. One shared detections WebSocket fans out by `camera_name`; each tile plays its own MediaMTX path.
+
+```powershell
+# API must be up. Optional: also start cam2/cam3 publishers
+.\scripts\demo-multicam.ps1 -Publish
+
+# Regenerate docs screenshot (mock by default; -Live needs UI+API)
+.\scripts\capture-live-grid.ps1
+```
+
+<p align="center">
+  <img src="docs/screenshots/live-grid.png" alt="Multi-cam live grid with three camera tiles" width="100%">
+</p>
+
 ### Camera management
 
 Register RTSP/HLS sources, edit metadata, disable cameras, and derive the MediaMTX path from each source URL. In Docker, prefer container-reachable hosts such as `rtsp://mediamtx:8554/cam1`.
@@ -200,7 +216,7 @@ docker compose down -v
 
 ## Runtime flow
 
-1. The `publisher` service loops `visionops-engine/data/demo.mp4` into MediaMTX path `cam1`.
+1. The `publisher` service loops `visionops-engine/data/demo.mp4` into MediaMTX path `cam1`. Extra paths `cam2` / `cam3` start with `docker compose --profile multicam up -d` (or `.\scripts\demo-multicam.ps1 -Publish`).
 2. The browser receives that stream using WebRTC/WHEP (after JWT login).
 3. The engine **multi-cam supervisor** polls active cameras and runs one `demo_roi` worker per camera (fallback: `VIDEO_SOURCE` + `CAMERA_NAME`).
 4. Each worker performs ONNX inference, ByteTrack IDs, ROI/tripwire rules, and reconnects on RTSP failures.
@@ -565,6 +581,7 @@ VisionOps_AI/
 - [x] Alert-level eval (ROI intrusion / capacity / loitering FAR vs GT)
 - [x] Production hardening guards (env, weak-secret refusal, CORS allow-list)
 - [x] Multi-cam live grid (shared WS fan-out, per-tile streams, focus → single)
+- [x] Multi-cam demo script + live-grid screenshot (3 cameras)
 
 ## License
 
