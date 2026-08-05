@@ -15,16 +15,31 @@ $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 $Ui = Join-Path $Root "visionops-ui"
 
-if (-not (Test-Path (Join-Path $Ui "node_modules\playwright"))) {
-  Write-Host "Installing Playwright in visionops-ui…" -ForegroundColor Yellow
+function Ensure-Playwright {
+  $pkg = Join-Path $Ui "node_modules\playwright"
+  if (-not (Test-Path $pkg)) {
+    Write-Host "Installing npm deps + Playwright Chromium in visionops-ui..." -ForegroundColor Yellow
+    Push-Location $Ui
+    try {
+      npm install
+      npx playwright install chromium
+    } finally {
+      Pop-Location
+    }
+    return
+  }
+
+  # Browsers may be missing even when the npm package is present (fresh machine / different cache).
   Push-Location $Ui
   try {
-    npm install
-    npx playwright install chromium
+    $probe = npx playwright install chromium 2>&1
+    if ($probe) { Write-Host $probe }
   } finally {
     Pop-Location
   }
 }
+
+Ensure-Playwright
 
 if ($Live) {
   $env:CAPTURE_LIVE = "1"

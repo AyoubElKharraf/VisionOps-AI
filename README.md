@@ -63,10 +63,11 @@ Seed three demo cameras and open the Live Monitor **Grid** layout. One shared de
 
 ```powershell
 # API must be up. Optional: also start cam2/cam3 publishers
-.\scripts\demo-multicam.ps1 -Publish
+.\scripts\demo-multicam.cmd -Publish
+# From PowerShell you can also run: .\scripts\demo-multicam.ps1 -Publish
 
 # Regenerate docs screenshot (mock by default; -Live needs UI+API)
-.\scripts\capture-live-grid.ps1
+.\scripts\capture-live-grid.cmd
 ```
 
 <p align="center">
