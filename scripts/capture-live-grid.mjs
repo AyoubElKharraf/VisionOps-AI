@@ -10,7 +10,7 @@
  */
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, mkdirSync } from "node:fs";
 import { extname, join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -22,6 +22,7 @@ const { chromium } = requireFromUi("playwright");
 
 const shots = join(root, "docs", "screenshots");
 const outPath = join(shots, "live-grid.png");
+const debugPath = join(shots, "live-grid-debug.png");
 const live = process.env.CAPTURE_LIVE === "1";
 const apiUrl = process.env.PLAYWRIGHT_API_URL ?? "http://127.0.0.1:8001";
 const uiUrl = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:3000";
@@ -58,7 +59,26 @@ function serveDocs() {
   });
 }
 
+async function assertStackUp() {
+  try {
+    const health = await fetch(`${apiUrl}/health`, { signal: AbortSignal.timeout(4000) });
+    if (!health.ok) throw new Error(`HTTP ${health.status}`);
+  } catch (err) {
+    const cause = err?.cause?.code || err?.code || err?.message || err;
+    throw new Error(
+      [
+        `API unreachable at ${apiUrl} (${cause}).`,
+        "Unpause Docker Desktop, then:",
+        "  docker compose up -d backend ui mediamtx publisher engine",
+        "Or capture the docs mock instead (no stack):",
+        "  .\\scripts\\capture-live-grid.cmd",
+      ].join("\n"),
+    );
+  }
+}
+
 async function seedCameras() {
+  await assertStackUp();
   const headers = {
     "X-API-Key": apiKey,
     "Content-Type": "application/json",
@@ -108,15 +128,46 @@ async function captureLive(browser) {
     },
     { token: body.access_token, user: body.user },
   );
-  await page.goto(`${uiUrl}/monitor`, { waitUntil: "networkidle" });
-  await page.getByRole("button", { name: "Grid" }).click();
-  const source = page.locator("label").filter({ hasText: "Video source" }).locator("select");
-  if (await source.count()) {
-    await source.selectOption("demo");
+
+  try {
+    await page.goto(`${uiUrl}/monitor`, { waitUntil: "domcontentloaded", timeout: 60000 });
+    await page.getByRole("heading", { name: "Live Monitor" }).waitFor({ timeout: 30000 });
+
+    const gridBtn = page.getByRole("button", { name: "Grid" });
+    if (await gridBtn.count()) {
+      await gridBtn.click({ timeout: 10000 });
+    } else {
+      // Old UI image without Single/Grid — still screenshot whatever is on /monitor.
+      console.warn(
+        "Grid button missing — UI image may be outdated. Rebuild with:",
+        "\n  docker compose up -d --build ui",
+      );
+      mkdirSync(shots, { recursive: true });
+      await page.screenshot({ path: debugPath, fullPage: false });
+      console.warn(`Wrote debug shot ${debugPath}`);
+    }
+
+    const source = page.locator("label").filter({ hasText: "Video source" }).locator("select");
+    if (await source.count()) {
+      await source.selectOption("demo").catch(() => undefined);
+    }
+
+    // Prefer grid chrome when present; otherwise wait briefly then shoot.
+    const gridHint = page.getByText(/Grid ·|Shared detections WS/i);
+    if (await gridHint.count()) {
+      await gridHint.first().waitFor({ state: "visible", timeout: 10000 }).catch(() => undefined);
+    }
+    await page.waitForTimeout(3500);
+    await page.screenshot({ path: outPath, fullPage: false });
+  } catch (err) {
+    mkdirSync(shots, { recursive: true });
+    await page.screenshot({ path: debugPath, fullPage: true }).catch(() => undefined);
+    throw new Error(
+      `${err?.message || err}\nDebug screenshot: ${debugPath}\nIf Grid is missing: docker compose up -d --build ui`,
+    );
+  } finally {
+    await page.close();
   }
-  await page.waitForTimeout(2500);
-  await page.screenshot({ path: outPath, fullPage: false });
-  await page.close();
 }
 
 async function captureMock(browser) {
