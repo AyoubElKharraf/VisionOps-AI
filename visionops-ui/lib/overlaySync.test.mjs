@@ -78,8 +78,8 @@ test("returns the original box when velocity or lead is missing", () => {
 });
 
 test("suggests latency defaults per video mode", () => {
-  assert.equal(suggestedLatencyMs("webrtc"), 120);
-  assert.equal(suggestedLatencyMs("hls"), 280);
+  assert.equal(suggestedLatencyMs("webrtc"), 180);
+  assert.equal(suggestedLatencyMs("hls"), 550);
   assert.equal(suggestedLatencyMs("demo"), 80);
   assert.equal(suggestedLatencyMs("unknown", 99), 99);
 });

@@ -12,9 +12,8 @@
   multicam (publisher-cam2 / publisher-cam3) alongside the default publisher.
 
 .EXAMPLE
-  .\scripts\demo-multicam.ps1
+  .\scripts\demo-multicam.cmd -Publish
   .\scripts\demo-multicam.ps1 -Publish
-  .\scripts\demo-multicam.ps1 -ApiUrl http://127.0.0.1:8001 -HostRtsp
 #>
 [CmdletBinding()]
 param(
@@ -40,7 +39,7 @@ function Invoke-VisionOpsApi {
   param(
     [string]$Method,
     [string]$Path,
-    [object]$Body = $null
+    [hashtable]$Body = $null
   )
   $headers = @{ "X-API-Key" = $ApiKey; "Content-Type" = "application/json" }
   $uri = "$ApiUrl$Path"
@@ -51,29 +50,37 @@ function Invoke-VisionOpsApi {
   return Invoke-RestMethod -Method $Method -Uri $uri -Headers $headers -Body $json
 }
 
-function Get-CameraId([object]$Camera) {
-  # Avoid PowerShell member-enumeration joining multiple .id values with spaces.
-  if ($null -eq $Camera) { return $null }
-  $one = @($Camera)[0]
-  if ($null -eq $one) { return $null }
-  $raw = $one.id
-  if ($raw -is [System.Array]) {
-    $raw = $raw[0]
+function ConvertTo-FlatList {
+  <#
+    Windows PowerShell 5.1 quirk:
+      @(Invoke-RestMethod ...)  -> nested Object[] (count 1) when JSON is an array
+      $r = Invoke-RestMethod; @($r) -> flat list
+    Also unwrap one level if we still receive a nested array.
+  #>
+  param($Response)
+  $list = New-Object System.Collections.Generic.List[object]
+  # Prefer foreach over @() around the cmdlet call itself.
+  foreach ($item in $Response) {
+    if ($item -is [System.Array]) {
+      foreach ($nested in $item) { [void]$list.Add($nested) }
+    } else {
+      [void]$list.Add($item)
+    }
   }
-  $id = [string]$raw
+  # Unary comma prevents PowerShell from unraveling a single-element result on return.
+  return , $list.ToArray()
+}
+
+function Get-CameraId {
+  param($Camera)
+  if ($null -eq $Camera) { return $null }
+  $one = $Camera
+  if ($Camera -is [System.Array]) { $one = $Camera[0] }
+  $id = [string]$one.id
   if ($id -notmatch '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$') {
     throw "Invalid camera id '$id' (refusing to PATCH)."
   }
   return $id
-}
-
-function Find-CameraByName([object[]]$List, [string]$Name) {
-  foreach ($item in @($List)) {
-    if ($null -ne $item -and [string]$item.name -eq $Name) {
-      return $item
-    }
-  }
-  return $null
 }
 
 Write-Host "VisionOps multi-cam demo" -ForegroundColor Cyan
@@ -85,23 +92,33 @@ try {
   throw "API not reachable at $ApiUrl/health. Start the stack first: docker compose up -d"
 }
 
-$existing = @()
 try {
-  $existing = @(Invoke-VisionOpsApi -Method GET -Path "/api/v1/cameras")
+  # Assign first — do NOT wrap Invoke-RestMethod in @() under Windows PowerShell 5.1.
+  $rawCameras = Invoke-VisionOpsApi -Method GET -Path "/api/v1/cameras"
+  $existing = ConvertTo-FlatList $rawCameras
 } catch {
   throw "Failed to list cameras (auth/API key?). $_"
 }
+
+Write-Host "Found $($existing.Count) camera(s) on API"
 
 foreach ($cam in $cameras) {
   $camName = [string]$cam["name"]
   $camPath = [string]$cam["path"]
   $camLocation = [string]$cam["location"]
   $source = "rtsp://${rtspHost}:8554/$camPath"
-  $match = Find-CameraByName -List $existing -Name $camName
+
+  $match = $null
+  foreach ($item in $existing) {
+    if ([string]$item.name -eq $camName) {
+      $match = $item
+      break
+    }
+  }
 
   if ($null -ne $match) {
     $cameraId = Get-CameraId $match
-    Write-Host "Update camera $camName -> $source"
+    Write-Host "Update camera $camName ($cameraId) -> $source"
     Invoke-VisionOpsApi -Method PATCH -Path "/api/v1/cameras/$cameraId" -Body @{
       source_url = $source
       location   = $camLocation
@@ -115,7 +132,7 @@ foreach ($cam in $cameras) {
       location   = $camLocation
       is_active  = $true
     }
-    $existing += $created
+    $existing = @($existing + $created)
   }
 }
 
@@ -143,13 +160,7 @@ Next steps
 3. Video source -> WebRTC (or HLS / Demo MP4)
 4. Click a tile to focus the full single-camera monitor
 
-Engine (Docker already runs multi_cam_runner against active cameras).
-Local single-worker examples:
-  python demo_roi.py --stream-detections --camera-name entrance --source rtsp://127.0.0.1:8554/cam1
-  python demo_roi.py --stream-detections --camera-name parking-lot --source rtsp://127.0.0.1:8554/cam2
-  python demo_roi.py --stream-detections --camera-name loading-dock --source rtsp://127.0.0.1:8554/cam3
-
-Capture README screenshot (stack running):
+Capture README screenshot:
   .\scripts\capture-live-grid.cmd
 
 "@ -ForegroundColor Green

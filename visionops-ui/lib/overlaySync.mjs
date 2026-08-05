@@ -11,8 +11,8 @@ export const MAX_LEAD_MS = 500;
 
 /** Sensible starting points per playback path (display delay before pixels appear). */
 export const MODE_LATENCY_DEFAULTS = Object.freeze({
-  webrtc: 120,
-  hls: 280,
+  webrtc: 180,
+  hls: 550,
   demo: 80,
 });
 

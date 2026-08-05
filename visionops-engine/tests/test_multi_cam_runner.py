@@ -24,6 +24,21 @@ def test_desired_cameras_uses_api_list():
     assert desired["gate"].source_url.endswith("/cam2")
 
 
+def test_desired_cameras_respects_max_workers():
+    cams = [
+        CameraSpec(name="zulu", source_url="rtsp://x/z"),
+        CameraSpec(name="alpha", source_url="rtsp://x/a"),
+        CameraSpec(name="mike", source_url="rtsp://x/m"),
+    ]
+    desired = desired_cameras(
+        cams,
+        fallback_source="rtsp://fallback/cam1",
+        fallback_camera="demo-camera",
+        max_workers=2,
+    )
+    assert list(desired) == ["alpha", "mike"]
+
+
 def test_desired_cameras_fallback_when_empty():
     desired = desired_cameras(
         [],
@@ -62,6 +77,7 @@ def test_build_worker_command_includes_camera_and_disables_child_metrics():
         api_url="http://backend:8001",
         api_key="secret",
         stream_every=2,
+        conf=0.35,
     )
     assert cmd[0] == "python"
     assert "demo_roi.py" in cmd
@@ -69,3 +85,4 @@ def test_build_worker_command_includes_camera_and_disables_child_metrics():
     assert cmd[cmd.index("--source") + 1] == "rtsp://mediamtx:8554/cam1"
     assert cmd[cmd.index("--metrics-port") + 1] == "0"
     assert cmd[cmd.index("--api-key") + 1] == "secret"
+    assert cmd[cmd.index("--conf") + 1] == "0.35"

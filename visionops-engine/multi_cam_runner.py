@@ -90,7 +90,19 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--stream-every",
         type=int,
-        default=int(os.getenv("DETECTION_STREAM_EVERY", "1")),
+        default=int(os.getenv("DETECTION_STREAM_EVERY", "2")),
+    )
+    p.add_argument(
+        "--conf",
+        type=float,
+        default=float(os.getenv("YOLO_CONF", "0.35")),
+        help="Display / alert confidence floor passed to demo_roi --conf",
+    )
+    p.add_argument(
+        "--max-workers",
+        type=int,
+        default=int(os.getenv("ENGINE_MAX_WORKERS", "2")),
+        help="Cap concurrent inference workers (0 = unlimited). CPU hosts should stay low.",
     )
     p.add_argument(
         "--metrics-port",
@@ -134,15 +146,23 @@ def desired_cameras(
     *,
     fallback_source: str,
     fallback_camera: str,
+    max_workers: int = 0,
 ) -> dict[str, CameraSpec]:
     """Build the target worker map. API list wins; otherwise a single fallback cam."""
     if api_cameras:
-        return {cam.key: cam for cam in api_cameras}
-    source = (fallback_source or "").strip()
-    name = (fallback_camera or "demo-camera").strip() or "demo-camera"
-    if not source:
-        return {}
-    return {name: CameraSpec(name=name, source_url=source)}
+        desired = {cam.key: cam for cam in api_cameras}
+    else:
+        source = (fallback_source or "").strip()
+        name = (fallback_camera or "demo-camera").strip() or "demo-camera"
+        if not source:
+            return {}
+        desired = {name: CameraSpec(name=name, source_url=source)}
+
+    if max_workers and max_workers > 0 and len(desired) > max_workers:
+        # Stable order so reconcile does not thrash which cameras are inferred.
+        keep = sorted(desired.keys())[:max_workers]
+        return {key: desired[key] for key in keep}
+    return desired
 
 
 def plan_reconcile(
@@ -160,6 +180,20 @@ def plan_reconcile(
     return stop_keys, start_specs, restart_specs
 
 
+def resolve_worker_source(source_url: str) -> str:
+    """Optionally analyze the local demo MP4 instead of re-decoding RTSP (CPU demo)."""
+    flag = os.getenv("ENGINE_USE_FILE_DEMO", "").strip().lower()
+    if flag not in {"1", "true", "yes", "on"}:
+        return source_url
+    lower = source_url.lower()
+    if "mediamtx" not in lower and "/cam" not in lower:
+        return source_url
+    demo = os.getenv("DEMO_VIDEO_PATH", "/data/demo.mp4")
+    if os.path.isfile(demo):
+        return demo
+    return source_url
+
+
 def build_worker_command(
     spec: CameraSpec,
     *,
@@ -168,7 +202,9 @@ def build_worker_command(
     api_url: str,
     api_key: str,
     stream_every: int,
+    conf: float = 0.35,
 ) -> list[str]:
+    source = resolve_worker_source(spec.source_url)
     cmd = [
         python,
         demo_script,
@@ -180,8 +216,10 @@ def build_worker_command(
         "--sync-roi",
         "--stream-every",
         str(max(1, stream_every)),
+        "--conf",
+        str(conf),
         "--source",
-        spec.source_url,
+        source,
         "--camera-name",
         spec.name,
         "--api-url",
@@ -216,6 +254,7 @@ class MultiCameraSupervisor:
         self._stop = True
 
     def start_worker(self, spec: CameraSpec) -> None:
+        source = resolve_worker_source(spec.source_url)
         cmd = build_worker_command(
             spec,
             python=self.args.python,
@@ -223,8 +262,14 @@ class MultiCameraSupervisor:
             api_url=self.args.api_url,
             api_key=self.args.api_key,
             stream_every=self.args.stream_every,
+            conf=float(self.args.conf),
         )
-        logger.info("Starting worker camera=%s source=%s", spec.name, spec.source_url)
+        logger.info(
+            "Starting worker camera=%s source=%s (resolved=%s)",
+            spec.name,
+            spec.source_url,
+            source,
+        )
         env = os.environ.copy()
         env["METRICS_PORT"] = "0"
         proc = subprocess.Popen(cmd, cwd=os.path.dirname(self.args.demo_script) or ".", env=env)
@@ -278,6 +323,7 @@ class MultiCameraSupervisor:
             api_cams,
             fallback_source=self.args.fallback_source,
             fallback_camera=self.args.fallback_camera,
+            max_workers=int(self.args.max_workers),
         )
         stop_keys, start_specs, restart_specs = plan_reconcile(desired, self._running_specs())
 

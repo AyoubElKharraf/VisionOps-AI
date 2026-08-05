@@ -130,7 +130,7 @@ def parse_args() -> argparse.Namespace:
         help="RTSP URL or video path (defaults to VIDEO_SOURCE)",
     )
     p.add_argument("--max-frames", type=int, default=90)
-    p.add_argument("--conf", type=float, default=0.25)
+    p.add_argument("--conf", type=float, default=float(os.getenv("YOLO_CONF", "0.35")))
     p.add_argument("--device", type=str, default="cpu")
     p.add_argument(
         "--output",
@@ -405,6 +405,9 @@ def run(args: argparse.Namespace) -> int:
                 and args.stream_detections
                 and frame_idx % stream_every == 0
             ):
+                # ByteTrack keeps low-conf dets for association; only stream
+                # display-grade boxes so the Live Monitor is not flooded with noise.
+                display_conf = float(args.conf)
                 boxes_payload = [
                     {
                         "x1": d.x1,
@@ -417,6 +420,7 @@ def run(args: argparse.Namespace) -> int:
                         "track_id": d.track_id,
                     }
                     for d in detections
+                    if float(d.confidence) >= display_conf
                 ]
                 # Non-blocking; drops if previous HTTP still in flight
                 alert_client.push_detections(

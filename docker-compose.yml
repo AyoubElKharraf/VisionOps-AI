@@ -338,7 +338,7 @@ services:
       VIDEO_SOURCE: ${VIDEO_SOURCE:-rtsp://mediamtx:8554/cam1}
       WEIGHTS_DIR: /models
       VISIONOPS_API_KEY: ${VISIONOPS_API_KEY:-visionops-dev-key}
-      YOLO_CONF: ${YOLO_CONF:-0.25}
+      YOLO_CONF: ${YOLO_CONF:-0.35}
       USE_ONNX: ${USE_ONNX:-true}
       METRICS_PORT: "9101"
       RTSP_RECONNECT: ${RTSP_RECONNECT:-true}
@@ -348,7 +348,12 @@ services:
       RTSP_OPEN_RETRIES: ${RTSP_OPEN_RETRIES:-8}
       CAMERA_POLL_SECONDS: ${CAMERA_POLL_SECONDS:-15}
       CAMERA_NAME: ${CAMERA_NAME:-demo-camera}
-      DETECTION_STREAM_EVERY: ${DETECTION_STREAM_EVERY:-1}
+      DETECTION_STREAM_EVERY: ${DETECTION_STREAM_EVERY:-2}
+      # Cap CPU inference workers (Live Monitor still shows video for other cams).
+      ENGINE_MAX_WORKERS: ${ENGINE_MAX_WORKERS:-2}
+      # Analyze local demo.mp4 instead of re-decoding 3× RTSP (cleaner boxes on CPU).
+      ENGINE_USE_FILE_DEMO: ${ENGINE_USE_FILE_DEMO:-true}
+      DEMO_VIDEO_PATH: ${DEMO_VIDEO_PATH:-/app/data/demo.mp4}
       # multi = one demo_roi process per active camera (API); single = legacy one-stream mode
       ENGINE_MODE: ${ENGINE_MODE:-multi}
       VISIONOPS_PPE_MODEL: ${VISIONOPS_PPE_MODEL:-}

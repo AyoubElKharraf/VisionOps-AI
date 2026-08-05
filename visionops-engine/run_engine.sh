@@ -31,4 +31,6 @@ exec python multi_cam_runner.py \
   --fallback-camera "$CAMERA" \
   --poll-seconds "$POLL" \
   --stream-every "$STREAM_EVERY" \
+  --conf "${YOLO_CONF:-0.35}" \
+  --max-workers "${ENGINE_MAX_WORKERS:-2}" \
   --metrics-port 9101
