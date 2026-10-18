@@ -73,6 +73,7 @@ def on_startup() -> None:
 
     # Schema migrations are executed before backend startup by the Liquibase service
     logger.info("Database schema is managed by Liquibase")
+    run_migrations()
     try:
         db = SessionLocal()
         try:
