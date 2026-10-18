@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <!-- =================================================================== -->
+    <!-- ChangeSet: v1.1-01-seed-default-admin                               -->
+    <!-- Purpose: Insert default VisionOps admin user with hashed password   -->
+    <!-- Credentials: username=admin / password=visionops-admin             -->
+    <!-- =================================================================== -->
+    <changeSet id="v1.1-01-seed-default-admin" author="visionops">
+        <comment>Seed default administrator user</comment>
+        <insert tableName="users">
+            <column name="id" value="a0000000-0000-0000-0000-000000000001"/>
+            <column name="username" value="admin"/>
+            <!-- Bcrypt hash for 'visionops-admin' -->
+            <column name="password_hash" value="$2a$06$.x2t5siLuR3yJYZm8DsFhuLkwnjGhiWb6.ikZPbZ6eJ/pC1zDX2XC"/>
+            <column name="full_name" value="VisionOps Admin"/>
+            <column name="role" value="admin"/>
+            <column name="is_active" valueBoolean="true"/>
+            <column name="created_at" valueComputed="NOW()"/>
+            <column name="updated_at" valueComputed="NOW()"/>
+        </insert>
+        <rollback>
+            <delete tableName="users">
+                <where>id = 'a0000000-0000-0000-0000-000000000001'</where>
+            </delete>
+        </rollback>
+    </changeSet>
+
+    <!-- =================================================================== -->
+    <!-- ChangeSet: v1.1-02-seed-demo-cameras                                -->
+    <!-- Purpose: Insert 3 default demo cameras connected to MediaMTX paths  -->
+    <!-- =================================================================== -->
+    <changeSet id="v1.1-02-seed-demo-cameras" author="visionops">
+        <comment>Seed default demo cameras for live monitoring</comment>
+        <insert tableName="cameras">
+            <column name="id" value="c0000000-0000-0000-0000-000000000001"/>
+            <column name="name" value="entrance"/>
+            <column name="source_url" value="rtsp://mediamtx:8554/cam1"/>
+            <column name="location" value="Main gate"/>
+            <column name="is_active" valueBoolean="true"/>
+            <column name="created_at" valueComputed="NOW()"/>
+        </insert>
+        <insert tableName="cameras">
+            <column name="id" value="c0000000-0000-0000-0000-000000000002"/>
+            <column name="name" value="parking-lot"/>
+            <column name="source_url" value="rtsp://mediamtx:8554/cam2"/>
+            <column name="location" value="Lot A"/>
+            <column name="is_active" valueBoolean="true"/>
+            <column name="created_at" valueComputed="NOW()"/>
+        </insert>
+        <insert tableName="cameras">
+            <column name="id" value="c0000000-0000-0000-0000-000000000003"/>
+            <column name="name" value="loading-dock"/>
+            <column name="source_url" value="rtsp://mediamtx:8554/cam3"/>
+            <column name="location" value="Dock 2"/>
+            <column name="is_active" valueBoolean="true"/>
+            <column name="created_at" valueComputed="NOW()"/>
+        </insert>
+        <rollback>
+            <delete tableName="cameras">
+                <where>id IN ('c0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000003')</where>
+            </delete>
+        </rollback>
+    </changeSet>
+
+    <!-- =================================================================== -->
+    <!-- ChangeSet: v1.1-03-seed-demo-roi-zone                               -->
+    <!-- Purpose: Insert sample Region of Interest polygon on entrance cam   -->
+    <!-- =================================================================== -->
+    <changeSet id="v1.1-03-seed-demo-roi-zone" author="visionops">
+        <comment>Seed default ROI intrusion zone for entrance camera</comment>
+        <sql dbms="postgresql">
+            INSERT INTO roi_zones (
+                id, camera_id, name, points, color, max_allowed_objects,
+                loitering_seconds, schedule_enabled, schedule_start, schedule_end,
+                schedule_days, schedule_timezone, require_hardhat, is_active, created_at
+            ) VALUES (
+                'd0000000-0000-0000-0000-000000000001',
+                'c0000000-0000-0000-0000-000000000001',
+                'Zone 1 - Main Entrance',
+                '[[0.1, 0.2], [0.8, 0.2], [0.8, 0.8], [0.1, 0.8]]'::jsonb,
+                '#ef4444',
+                0,
+                15,
+                false,
+                '00:00',
+                '23:59',
+                '[0, 1, 2, 3, 4, 5, 6]'::jsonb,
+                'UTC',
+                false,
+                true,
+                NOW()
+            );
+        </sql>
+        <rollback>
+            <delete tableName="roi_zones">
+                <where>id = 'd0000000-0000-0000-0000-000000000001'</where>
+            </delete>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

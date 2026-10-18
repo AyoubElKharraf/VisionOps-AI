@@ -1,0 +1,302 @@
+================================================================================
+           SUIVI D'AVANCEMENT DU PROJET - MIGRATION LIQUIBASE (VisionOps-AI)
+================================================================================
+
+Date de création : 18 Octobre 2026
+Projet           : VisionOps-AI
+Module           : Base de données / Migrations (PostgreSQL)
+Objectif         : Transition et adoption de Liquibase pour la gestion du cycle
+                   de vie du schéma relationnel de VisionOps AI.
+Statut actuel    : Phases 1 et 2 complétées avec succès (Schéma v1.0, Seeds v1.1, CLI & Isolation FastAPI).
+
+--------------------------------------------------------------------------------
+1. CONTEXTE ET OBJECTIFS
+--------------------------------------------------------------------------------
+Initialement, la base de données PostgreSQL de VisionOps AI s'appuyait sur des
+fichiers de migration Alembic (0001_initial_schema.py à 0006_model_registry.py).
+
+Pourquoi Liquibase ?
+- Découplage strict entre la couche de persistance/schéma et le code applicatif
+  FastAPI (SQLAlchemy).
+- Capacité d'exécuter les migrations en conteneur autonome officiel avant le
+  démarrage des microservices métier.
+- Auditabilité native avec traçabilité complète des exécutions (table
+  DATABASECHANGELOG) et verrouillage contre les courses concurrentes
+  (table DATABASECHANGELOGLOCK).
+- Support robuste des retours arrière (rollbacks automatisés et manuels).
+
+--------------------------------------------------------------------------------
+2. PLAN DE CHARGE DU PROJET
+--------------------------------------------------------------------------------
+[X] Phase 1.1 : Mise en place de l'arborescence et du Master Changelog.
+[X] Phase 1.2 : Écriture du ChangeSet Initial v1.0 (schéma complet de base).
+[X] Phase 1.3 : Intégration du service Liquibase dans docker-compose.yml.
+[X] Phase 1.4 : Exécution et validation du conteneur Liquibase sur PostgreSQL.
+[X] Phase 2.1 : Insertion des données initiales (Seeds v1.1 : admin, caméras, ROI).
+[X] Phase 2.2 : Scripts CLI d'administration rapides (PowerShell et Bash).
+[X] Phase 2.3 : Désactivation d'Alembic au profit exclusif de Liquibase.
+[ ] Phase 3.0 : Automatisation CI/CD (GitHub Actions / GitLab CI).
+
+--------------------------------------------------------------------------------
+3. JOURNAL DES MODIFICATIONS (CE QUI A CHANGÉ, COMMENT & POURQUOI)
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+>> ÉTAPE 1 : Phase 1.1 — Arborescence et Master Changelog
+--------------------------------------------------------------------------------
+* QUOI :
+  - Création du dossier : visionops-backend/db/changelog/
+  - Création du fichier : visionops-backend/db/changelog/db.changelog-master.xml
+
+* COMMENT :
+  - Le master changelog sert de point d'entrée unique ("Single Source of Truth")
+    reconnu par Liquibase.
+  - Utilisation de la directive `<include file="changelog-v1.0.xml" relativeToChangelogFile="true"/>`.
+  - L'attribut `relativeToChangelogFile="true"` garantit la portabilité du chemin
+    que Liquibase soit exécuté en local, en CI/CD ou dans un conteneur Docker.
+
+* POURQUOI :
+  - Permet d'organiser les futures évolutions du schéma de façon modulaire par
+    version (ex: changelog-v1.0.xml, changelog-v1.1.xml, etc.) sans jamais
+    surcharger un seul fichier monolithique.
+
+--------------------------------------------------------------------------------
+>> ÉTAPE 2 : Phase 1.2 — Rédaction du ChangeSet Initial v1.0
+--------------------------------------------------------------------------------
+* QUOI :
+  - Création du fichier : visionops-backend/db/changelog/changelog-v1.0.xml
+
+* COMMENT :
+  Le fichier a été découpé en 7 changesets modulaires, exhaustifs et auditables :
+
+  1. ChangeSet "v1.0-01-create-enum-types" (Auteur: visionops) :
+     - Création idempotente des types énumérés PostgreSQL natifs :
+       * user_role      : ('admin', 'operator')
+       * alert_type     : ('roi_intrusion', 'tripwire', 'loitering', 'ppe_violation', 'custom')
+       * alert_status   : ('pending', 'processing', 'ready', 'failed')
+       * model_role     : ('detector', 'ppe')
+       * model_format   : ('onnx', 'pytorch')
+     - Bloc `<rollback>` configuré pour supprimer proprement ces types en cas d'annulation.
+
+  2. ChangeSet "v1.0-02-create-table-users" (Auteur: visionops) :
+     - Table `users` (Authentification JWT et RBAC) :
+       * id (UUID, clé primaire)
+       * username (VARCHAR(80), unique, non nul)
+       * password_hash (VARCHAR(255), non nul)
+       * full_name (VARCHAR(160))
+       * role (type enum user_role, défaut 'operator')
+       * is_active (BOOLEAN, défaut true)
+       * created_at & updated_at (TIMESTAMPTZ, défaut NOW())
+     - Index unique dédié : `ix_users_username`.
+
+  3. ChangeSet "v1.0-03-create-table-cameras" (Auteur: visionops) :
+     - Table `cameras` (Sources vidéo RTSP et caméras réseau) :
+       * id (UUID, clé primaire)
+       * name (VARCHAR(120), unique, non nul)
+       * source_url (VARCHAR(512), non nul)
+       * location (VARCHAR(255))
+       * is_active (BOOLEAN, défaut true)
+       * created_at (TIMESTAMPTZ, défaut NOW())
+
+  4. ChangeSet "v1.0-04-create-table-roi-zones" (Auteur: visionops) :
+     - Table `roi_zones` (Zones d'intérêt, règles de loitering et conformité EPI) :
+       * id (UUID, clé primaire)
+       * camera_id (UUID, clé étrangère vers cameras(id) ON DELETE CASCADE)
+       * name (VARCHAR(120), non nul)
+       * points (JSONB, coordonnées des polygones)
+       * color (VARCHAR(32), défaut '#ef4444')
+       * max_allowed_objects (INTEGER, défaut 0)
+       * forbidden_classes (JSONB)
+       * loitering_seconds (INTEGER, défaut 0)
+       * schedule_enabled (BOOLEAN, défaut false)
+       * schedule_start (VARCHAR(5), défaut '00:00')
+       * schedule_end (VARCHAR(5), défaut '23:59')
+       * schedule_days (JSONB, défaut '[0, 1, 2, 3, 4, 5, 6]')
+       * schedule_timezone (VARCHAR(64), défaut 'UTC')
+       * require_hardhat (BOOLEAN, défaut false)
+       * is_active (BOOLEAN, défaut true)
+       * created_at (TIMESTAMPTZ, défaut NOW())
+
+  5. ChangeSet "v1.0-05-create-table-alerts" (Auteur: visionops) :
+     - Table `alerts` (Incidents de sécurité détectés et workflow opérateur) :
+       * id (UUID, clé primaire)
+       * camera_id (UUID, clé étrangère vers cameras(id) ON DELETE SET NULL)
+       * alert_type (type enum alert_type)
+       * status (type enum alert_status, défaut 'pending')
+       * incident_status (VARCHAR(32), défaut 'open')
+       * zone_name, class_name, track_id, confidence, message, metadata_json
+       * assigned_to, acknowledged_by, acknowledged_at, resolved_by, resolved_at, resolution_note
+       * source_video_path, frame_index, snapshot_object_key, clip_object_key, error_message
+       * created_at & updated_at (TIMESTAMPTZ, défaut NOW())
+
+  6. ChangeSet "v1.0-06-create-table-alert-events" (Auteur: visionops) :
+     - Table `alert_events` (Historique immuable d'audit des actions sur incidents) :
+       * id (UUID, clé primaire)
+       * alert_id (UUID, clé étrangère vers alerts(id) ON DELETE CASCADE)
+       * event_type (VARCHAR(40), non nul)
+       * actor (VARCHAR(120))
+       * message (TEXT, non nul)
+       * metadata_json (JSONB)
+       * created_at (TIMESTAMPTZ, défaut NOW())
+     - Index d'accès rapide : `ix_alert_events_alert_id`.
+
+  7. ChangeSet "v1.0-07-create-table-model-artifacts" (Auteur: visionops) :
+     - Table `model_artifacts` (Registre des modèles IA ONNX / PyTorch stockés dans MinIO) :
+       * id (UUID, clé primaire)
+       * name (VARCHAR(120), indexé)
+       * version (VARCHAR(64), non nul)
+       * role (type enum model_role, indexé)
+       * format (type enum model_format)
+       * filename, object_key, sha256, size_bytes
+       * is_active (BOOLEAN, défaut false)
+       * notes, created_by, created_at, activated_at
+     - Contrainte d'unicité : `uq_model_role_name_version` sur (role, name, version).
+     - Index : `ix_model_artifacts_name` et `ix_model_artifacts_role`.
+
+* POURQUOI :
+  - Transcrire rigoureusement à 100% l'intégralité du modèle de données défini
+    dans app/models.py et les révisions Alembic 0001 à 0006.
+  - Préserver le comportement PostgreSQL natif (types UUID, JSONB, ENUM, intégrité
+    référentielle CASCADE et SET NULL, valeurs par défaut).
+
+--------------------------------------------------------------------------------
+>> ÉTAPE 3 : Phase 1.3 — Intégration Docker Compose
+--------------------------------------------------------------------------------
+* QUOI :
+  - Modification de : docker-compose.yml
+  - Déclaration du service conteneurisé `liquibase` utilisant l'image officielle
+    `liquibase/liquibase:4.29` (version stable incluant nativement le pilote JDBC PostgreSQL).
+  - Mise à jour de la directive `depends_on` du service `backend` pour attendre
+    `liquibase` avec `condition: service_completed_successfully`.
+
+* COMMENT :
+  - Montage de volume : `./visionops-backend/db/changelog:/liquibase/changelog`
+  - Recherche du changelog : `--search-path=/liquibase/changelog`
+  - Chaîne de connexion JDBC dynamique :
+    `jdbc:postgresql://postgres:5432/${POSTGRES_DB:-visionops_db}`
+  - Mode d'exécution one-shot : `restart: "no"`, commande `update`.
+  - Condition d'orchestration :
+    `postgres (healthy)` -> `liquibase (completed successfully)` -> `backend (healthy)` -> `worker`.
+
+* POURQUOI :
+  - Assurer l'automatisation complète sans intervention manuelle.
+  - Empêcher l'API FastAPI et les Workers Celery de démarrer tant que le schéma
+    de base de données n'est pas 100% à jour.
+
+--------------------------------------------------------------------------------
+>> ÉTAPE 4 : Phase 1.4 — Test et Validation locale en direct
+--------------------------------------------------------------------------------
+* QUOI :
+  - Démarrage de `visionops-postgres` (PostgreSQL 16).
+  - Exécution du conteneur `visionops-liquibase`.
+  - Contrôle approfondi des tables et du schéma dans PostgreSQL.
+
+* COMMENT :
+  - Exécution de la commande : `docker compose up liquibase`
+  - Résultat :
+    * 7 changesets exécutés avec succès (`Run: 7, Previously run: 0`).
+    * Rows affected: 7.
+    * Code retour conteneur : 0 (Succès total).
+  - Inspection SQL directe via `psql` :
+    * Schéma applicatif : `visionops`
+    * 6 tables métiers créées : `users`, `cameras`, `roi_zones`, `alerts`, `alert_events`, `model_artifacts`.
+    * 2 tables de suivi Liquibase créées : `databasechangelog`, `databasechangeloglock`.
+    * Les 7 changesets sont enregistrés avec statut `EXECUTED` dans `visionops.databasechangelog`.
+    * Le verrou dans `visionops.databasechangeloglock` a été libéré proprement (`locked: false`).
+  - Test d'idempotence :
+    * Relance de `docker compose up liquibase`.
+    * Résultat : "Database is up to date, no changesets to execute" (0 ré-exécutés, 7 précédemment exécutés).
+
+* POURQUOI :
+  - Valider empiriquement que la syntaxe XML des changesets est exempte de bugs.
+  - Confirmer la compatibilité totale avec PostgreSQL 16 (types énumérés, UUID, JSONB, contraintes FK CASCADE/SET NULL, index).
+
+--------------------------------------------------------------------------------
+>> ÉTAPE 5 : Phase 2.1 — Insertion des Seeds / Données de test
+--------------------------------------------------------------------------------
+* QUOI :
+  - Création de : visionops-backend/db/changelog/changelog-v1.1-seeds.xml
+  - Inclusion dans : visionops-backend/db/changelog/db.changelog-master.xml
+
+* COMMENT :
+  - ChangeSet "v1.1-01-seed-default-admin" :
+    * Utilisateur admin par défaut (id: a0000000-0000-0000-0000-000000000001)
+    * Username: 'admin'
+    * Hash Bcrypt valide pour 'visionops-admin'
+    * Rôle: 'admin', is_active: true
+    * Rollback: suppression par id
+  - ChangeSet "v1.1-02-seed-demo-cameras" :
+    * 3 caméras de démonstration correspondant à MediaMTX et à l'UI :
+      - 'entrance' (cam1, 'Main gate')
+      - 'parking-lot' (cam2, 'Lot A')
+      - 'loading-dock' (cam3, 'Dock 2')
+    * Rollback: suppression des 3 IDs
+  - ChangeSet "v1.1-03-seed-demo-roi-zone" :
+    * Zone d'intrusion sur la caméra 'entrance' avec polygone normalisé JSONB
+    * Rollback: suppression par id
+
+* RÉSULTAT :
+  - Déployé avec succès via `docker compose up liquibase` (Total changesets: 10).
+  - Test de Rollback (`db-rollback.ps1 -Count 1`) et de ré-application (`db-update.ps1`) validé à 100%.
+
+--------------------------------------------------------------------------------
+>> ÉTAPE 6 : Phase 2.2 — Scripts CLI d'Administration (PowerShell & Bash)
+--------------------------------------------------------------------------------
+* QUOI :
+  - Création des scripts :
+    * scripts/db-status.ps1 & scripts/db-status.sh
+    * scripts/db-update.ps1 & scripts/db-update.sh
+    * scripts/db-rollback.ps1 & scripts/db-rollback.sh
+    * scripts/db-history.ps1
+* COMMENT :
+  - Encapsulent les appels `docker compose run --rm liquibase ...`.
+  - `db-rollback.ps1` supporte le paramètre `-Count <N>` ou `-Tag <TAG>` avec
+    confirmation interactive ou `-Force`.
+  - `db-history.ps1` affiche le tableau complet des déploiements passés.
+* POURQUOI :
+  - Faciliter les opérations quotidiennes de l'équipe sans mémoriser les commandes
+    Docker complexes.
+
+--------------------------------------------------------------------------------
+>> ÉTAPE 7 : Phase 2.3 — Désactivation de l'Auto-Upgrade Alembic dans FastAPI
+--------------------------------------------------------------------------------
+* QUOI :
+  - Modification de : visionops-backend/app/database.py
+  - Modification de : visionops-backend/app/main.py
+* COMMENT :
+  - Dans `database.py`, `run_migrations()` et `init_db()` ont été neutralisés
+    avec des docstrings explicites documentant l'autorité exclusive de Liquibase.
+  - Dans `main.py`, le bloc d'appel à `run_migrations()` a été remplacé par un
+    message de log confirmant que le cycle de vie BDD est sous gestion Liquibase.
+* POURQUOI :
+  - Découplage complet de l'application FastAPI vis-à-vis d'Alembic.
+  - Éviter toute collision de schéma ou tentative concurrente de modification
+    de la base de données au démarrage de l'API.
+
+--------------------------------------------------------------------------------
+4. ARBORESCENCE ACTUELLE LIQUIBASE
+--------------------------------------------------------------------------------
+VisionOps-AI/
+├── LIQUIBASE_PROGRESS.txt       (Journal de bord et suivi d'avancement)
+├── docker-compose.yml           (Orchestration incluant le service liquibase)
+├── scripts/
+│   ├── db-status.ps1 / .sh      (Vérification du statut des migrations)
+│   ├── db-update.ps1            (Application des migrations en attente)
+│   ├── db-rollback.ps1 / .sh    (Retour arrière par count ou tag)
+│   └── db-history.ps1           (Historique des déploiements)
+└── visionops-backend/
+    └── db/
+        └── changelog/
+            ├── db.changelog-master.xml    (Point d'entrée racine)
+            ├── changelog-v1.0.xml         (Schéma initial v1.0 avec 7 changesets)
+            └── changelog-v1.1-seeds.xml   (Données initiales avec 3 changesets)
+
+--------------------------------------------------------------------------------
+5. PROCHAINES ÉTAPES (PHASE 3)
+--------------------------------------------------------------------------------
+1. Phase 3.1 : Pipeline CI/CD (GitHub Actions)
+   - Validation automatisée des changesets (`liquibase validate` / `--dry-run`).
+2. Phase 3.2 : Tagging sémantique
+   - Pose de tags Liquibase après chaque livraison majeure (ex: `tag v1.1`).
+================================================================================
+

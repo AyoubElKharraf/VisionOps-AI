@@ -71,7 +71,8 @@ def on_startup() -> None:
         ",".join(_cors_origins),
     )
 
-    run_migrations()
+    # Schema migrations are executed before backend startup by the Liquibase service
+    logger.info("Database schema is managed by Liquibase")
     try:
         db = SessionLocal()
         try:
@@ -86,7 +87,7 @@ def on_startup() -> None:
         logger.info("MinIO bucket ready: %s", bucket)
     except Exception as exc:  # noqa: BLE001
         logger.warning("MinIO not ready yet: %s", exc)
-    logger.info("Database migrations applied (Alembic head)")
+    logger.info("Backend database initialization verified")
 
 
 @app.get("/health")

@@ -186,6 +186,30 @@ services:
       - visionops_minio_data:/data
     networks: [visionops]
 
+  liquibase:
+    image: liquibase/liquibase:4.29
+    container_name: visionops-liquibase
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./visionops-backend/db/changelog:/liquibase/changelog
+    environment:
+      LIQUIBASE_SEARCH_PATH: /liquibase/changelog
+      LIQUIBASE_COMMAND_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-visionops_db}
+      LIQUIBASE_COMMAND_USERNAME: ${POSTGRES_USER:-visionops}
+      LIQUIBASE_COMMAND_PASSWORD: ${POSTGRES_PASSWORD:-visionops_secret}
+      LIQUIBASE_COMMAND_CHANGELOG_FILE: db.changelog-master.xml
+    command:
+      - "--search-path=/liquibase/changelog"
+      - "--url=jdbc:postgresql://postgres:5432/${POSTGRES_DB:-visionops_db}"
+      - "--username=${POSTGRES_USER:-visionops}"
+      - "--password=${POSTGRES_PASSWORD:-visionops_secret}"
+      - "--changelog-file=db.changelog-master.xml"
+      - "update"
+    networks: [visionops]
+
   backend:
     build:
       context: ./visionops-backend
@@ -195,6 +219,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      liquibase:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
       minio:

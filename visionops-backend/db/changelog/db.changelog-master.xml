@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <!-- =================================================================== -->
+    <!-- VisionOps AI Master Changelog                                       -->
+    <!-- Serves as the single root entrypoint for all database migrations.   -->
+    <!-- Version-specific changelogs are included sequentially below.       -->
+    <!-- =================================================================== -->
+
+    <!-- Phase 1.2: Initial baseline schema matching Alembic 0001-0006 -->
+    <include file="changelog-v1.0.xml" relativeToChangelogFile="true"/>
+
+    <!-- Phase 2.1: Seed data (default admin, demo cameras, demo ROI zone) -->
+    <include file="changelog-v1.1-seeds.xml" relativeToChangelogFile="true"/>
+
+</databaseChangeLog>

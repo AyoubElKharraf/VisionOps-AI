@@ -1,0 +1,350 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <!-- =================================================================== -->
+    <!-- ChangeSet: v1.0-01-create-enum-types                                -->
+    <!-- Purpose: Create custom PostgreSQL ENUM types for VisionOps AI       -->
+    <!-- Enums: user_role, alert_type, alert_status, model_role, model_format -->
+    <!-- =================================================================== -->
+    <changeSet id="v1.0-01-create-enum-types" author="visionops">
+        <comment>Create custom PostgreSQL ENUM types</comment>
+        <sql dbms="postgresql">
+            DO $$ BEGIN
+                CREATE TYPE user_role AS ENUM ('admin', 'operator');
+            EXCEPTION WHEN duplicate_object THEN NULL;
+            END $$;
+
+            DO $$ BEGIN
+                CREATE TYPE alert_type AS ENUM ('roi_intrusion', 'tripwire', 'loitering', 'ppe_violation', 'custom');
+            EXCEPTION WHEN duplicate_object THEN NULL;
+            END $$;
+
+            DO $$ BEGIN
+                CREATE TYPE alert_status AS ENUM ('pending', 'processing', 'ready', 'failed');
+            EXCEPTION WHEN duplicate_object THEN NULL;
+            END $$;
+
+            DO $$ BEGIN
+                CREATE TYPE model_role AS ENUM ('detector', 'ppe');
+            EXCEPTION WHEN duplicate_object THEN NULL;
+            END $$;
+
+            DO $$ BEGIN
+                CREATE TYPE model_format AS ENUM ('onnx', 'pytorch');
+            EXCEPTION WHEN duplicate_object THEN NULL;
+            END $$;
+        </sql>
+        <rollback>
+            <sql dbms="postgresql">
+                DROP TYPE IF EXISTS model_format;
+                DROP TYPE IF EXISTS model_role;
+                DROP TYPE IF EXISTS alert_status;
+                DROP TYPE IF EXISTS alert_type;
+                DROP TYPE IF EXISTS user_role;
+            </sql>
+        </rollback>
+    </changeSet>
+
+    <!-- =================================================================== -->
+    <!-- ChangeSet: v1.0-02-create-table-users                               -->
+    <!-- Purpose: Store dashboard users for JWT authentication & RBAC        -->
+    <!-- =================================================================== -->
+    <changeSet id="v1.0-02-create-table-users" author="visionops">
+        <comment>Create users table with JWT authentication support</comment>
+        <createTable tableName="users">
+            <column name="id" type="UUID">
+                <constraints primaryKey="true" primaryKeyName="pk_users" nullable="false"/>
+            </column>
+            <column name="username" type="VARCHAR(80)">
+                <constraints nullable="false" unique="true" uniqueConstraintName="uq_users_username"/>
+            </column>
+            <column name="password_hash" type="VARCHAR(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="full_name" type="VARCHAR(160)"/>
+            <column name="role" type="user_role" defaultValue="operator">
+                <constraints nullable="false"/>
+            </column>
+            <column name="is_active" type="BOOLEAN" defaultValueBoolean="true">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="TIMESTAMP WITH TIME ZONE" defaultValueComputed="NOW()">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="TIMESTAMP WITH TIME ZONE" defaultValueComputed="NOW()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <createIndex indexName="ix_users_username" tableName="users" unique="true">
+            <column name="username"/>
+        </createIndex>
+
+        <rollback>
+            <dropTable tableName="users"/>
+        </rollback>
+    </changeSet>
+
+    <!-- =================================================================== -->
+    <!-- ChangeSet: v1.0-03-create-table-cameras                             -->
+    <!-- Purpose: Store RTSP and video streaming camera sources              -->
+    <!-- =================================================================== -->
+    <changeSet id="v1.0-03-create-table-cameras" author="visionops">
+        <comment>Create cameras table for video streams</comment>
+        <createTable tableName="cameras">
+            <column name="id" type="UUID">
+                <constraints primaryKey="true" primaryKeyName="pk_cameras" nullable="false"/>
+            </column>
+            <column name="name" type="VARCHAR(120)">
+                <constraints nullable="false" unique="true" uniqueConstraintName="uq_cameras_name"/>
+            </column>
+            <column name="source_url" type="VARCHAR(512)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="location" type="VARCHAR(255)"/>
+            <column name="is_active" type="BOOLEAN" defaultValueBoolean="true">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="TIMESTAMP WITH TIME ZONE" defaultValueComputed="NOW()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <rollback>
+            <dropTable tableName="cameras"/>
+        </rollback>
+    </changeSet>
+
+    <!-- =================================================================== -->
+    <!-- ChangeSet: v1.0-04-create-table-roi-zones                           -->
+    <!-- Purpose: Region Of Interest polygons, schedules and PPE constraints -->
+    <!-- =================================================================== -->
+    <changeSet id="v1.0-04-create-table-roi-zones" author="visionops">
+        <comment>Create roi_zones table with polygons, loitering and PPE rules</comment>
+        <createTable tableName="roi_zones">
+            <column name="id" type="UUID">
+                <constraints primaryKey="true" primaryKeyName="pk_roi_zones" nullable="false"/>
+            </column>
+            <column name="camera_id" type="UUID"/>
+            <column name="name" type="VARCHAR(120)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="points" type="JSONB">
+                <constraints nullable="false"/>
+            </column>
+            <column name="color" type="VARCHAR(32)" defaultValue="#ef4444">
+                <constraints nullable="false"/>
+            </column>
+            <column name="max_allowed_objects" type="INTEGER" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+            <column name="forbidden_classes" type="JSONB"/>
+            <column name="loitering_seconds" type="INTEGER" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+            <column name="schedule_enabled" type="BOOLEAN" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+            <column name="schedule_start" type="VARCHAR(5)" defaultValue="00:00">
+                <constraints nullable="false"/>
+            </column>
+            <column name="schedule_end" type="VARCHAR(5)" defaultValue="23:59">
+                <constraints nullable="false"/>
+            </column>
+            <column name="schedule_days" type="JSONB" defaultValueComputed="'[0, 1, 2, 3, 4, 5, 6]'::jsonb">
+                <constraints nullable="false"/>
+            </column>
+            <column name="schedule_timezone" type="VARCHAR(64)" defaultValue="UTC">
+                <constraints nullable="false"/>
+            </column>
+            <column name="require_hardhat" type="BOOLEAN" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+            <column name="is_active" type="BOOLEAN" defaultValueBoolean="true">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="TIMESTAMP WITH TIME ZONE" defaultValueComputed="NOW()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <addForeignKeyConstraint baseTableName="roi_zones"
+                                 baseColumnNames="camera_id"
+                                 constraintName="fk_roi_zones_camera_id"
+                                 referencedTableName="cameras"
+                                 referencedColumnNames="id"
+                                 onDelete="CASCADE"/>
+
+        <rollback>
+            <dropTable tableName="roi_zones"/>
+        </rollback>
+    </changeSet>
+
+    <!-- =================================================================== -->
+    <!-- ChangeSet: v1.0-05-create-table-alerts                              -->
+    <!-- Purpose: Real-time detection incidents, status, and media links     -->
+    <!-- =================================================================== -->
+    <changeSet id="v1.0-05-create-table-alerts" author="visionops">
+        <comment>Create alerts table for detected security and safety incidents</comment>
+        <createTable tableName="alerts">
+            <column name="id" type="UUID">
+                <constraints primaryKey="true" primaryKeyName="pk_alerts" nullable="false"/>
+            </column>
+            <column name="camera_id" type="UUID"/>
+            <column name="alert_type" type="alert_type">
+                <constraints nullable="false"/>
+            </column>
+            <column name="status" type="alert_status" defaultValue="pending">
+                <constraints nullable="false"/>
+            </column>
+            <column name="incident_status" type="VARCHAR(32)" defaultValue="open">
+                <constraints nullable="false"/>
+            </column>
+            <column name="zone_name" type="VARCHAR(120)"/>
+            <column name="class_name" type="VARCHAR(80)"/>
+            <column name="track_id" type="INTEGER"/>
+            <column name="confidence" type="FLOAT"/>
+            <column name="message" type="TEXT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="metadata_json" type="JSONB"/>
+            <column name="assigned_to" type="VARCHAR(120)"/>
+            <column name="acknowledged_by" type="VARCHAR(120)"/>
+            <column name="acknowledged_at" type="TIMESTAMP WITH TIME ZONE"/>
+            <column name="resolved_by" type="VARCHAR(120)"/>
+            <column name="resolved_at" type="TIMESTAMP WITH TIME ZONE"/>
+            <column name="resolution_note" type="TEXT"/>
+            <column name="source_video_path" type="VARCHAR(1024)"/>
+            <column name="frame_index" type="INTEGER"/>
+            <column name="snapshot_object_key" type="VARCHAR(512)"/>
+            <column name="clip_object_key" type="VARCHAR(512)"/>
+            <column name="error_message" type="TEXT"/>
+            <column name="created_at" type="TIMESTAMP WITH TIME ZONE" defaultValueComputed="NOW()">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="TIMESTAMP WITH TIME ZONE" defaultValueComputed="NOW()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <addForeignKeyConstraint baseTableName="alerts"
+                                 baseColumnNames="camera_id"
+                                 constraintName="fk_alerts_camera_id"
+                                 referencedTableName="cameras"
+                                 referencedColumnNames="id"
+                                 onDelete="SET NULL"/>
+
+        <rollback>
+            <dropTable tableName="alerts"/>
+        </rollback>
+    </changeSet>
+
+    <!-- =================================================================== -->
+    <!-- ChangeSet: v1.0-06-create-table-alert-events                        -->
+    <!-- Purpose: Immutable audit log for incident workflow & lifecycle      -->
+    <!-- =================================================================== -->
+    <changeSet id="v1.0-06-create-table-alert-events" author="visionops">
+        <comment>Create alert_events table for audit trail</comment>
+        <createTable tableName="alert_events">
+            <column name="id" type="UUID">
+                <constraints primaryKey="true" primaryKeyName="pk_alert_events" nullable="false"/>
+            </column>
+            <column name="alert_id" type="UUID">
+                <constraints nullable="false"/>
+            </column>
+            <column name="event_type" type="VARCHAR(40)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="actor" type="VARCHAR(120)"/>
+            <column name="message" type="TEXT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="metadata_json" type="JSONB"/>
+            <column name="created_at" type="TIMESTAMP WITH TIME ZONE" defaultValueComputed="NOW()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <addForeignKeyConstraint baseTableName="alert_events"
+                                 baseColumnNames="alert_id"
+                                 constraintName="fk_alert_events_alert_id"
+                                 referencedTableName="alerts"
+                                 referencedColumnNames="id"
+                                 onDelete="CASCADE"/>
+
+        <createIndex indexName="ix_alert_events_alert_id" tableName="alert_events">
+            <column name="alert_id"/>
+        </createIndex>
+
+        <rollback>
+            <dropTable tableName="alert_events"/>
+        </rollback>
+    </changeSet>
+
+    <!-- =================================================================== -->
+    <!-- ChangeSet: v1.0-07-create-table-model-artifacts                     -->
+    <!-- Purpose: Registry for versioned AI inference models in MinIO        -->
+    <!-- =================================================================== -->
+    <changeSet id="v1.0-07-create-table-model-artifacts" author="visionops">
+        <comment>Create model_artifacts table for AI model weights registry</comment>
+        <createTable tableName="model_artifacts">
+            <column name="id" type="UUID">
+                <constraints primaryKey="true" primaryKeyName="pk_model_artifacts" nullable="false"/>
+            </column>
+            <column name="name" type="VARCHAR(120)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="version" type="VARCHAR(64)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="role" type="model_role">
+                <constraints nullable="false"/>
+            </column>
+            <column name="format" type="model_format">
+                <constraints nullable="false"/>
+            </column>
+            <column name="filename" type="VARCHAR(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="object_key" type="VARCHAR(512)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="sha256" type="VARCHAR(64)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="size_bytes" type="INTEGER" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+            <column name="is_active" type="BOOLEAN" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+            <column name="notes" type="TEXT"/>
+            <column name="created_by" type="VARCHAR(120)"/>
+            <column name="created_at" type="TIMESTAMP WITH TIME ZONE" defaultValueComputed="NOW()">
+                <constraints nullable="false"/>
+            </column>
+            <column name="activated_at" type="TIMESTAMP WITH TIME ZONE"/>
+        </createTable>
+
+        <addUniqueConstraint tableName="model_artifacts"
+                             columnNames="role, name, version"
+                             constraintName="uq_model_role_name_version"/>
+
+        <createIndex indexName="ix_model_artifacts_name" tableName="model_artifacts">
+            <column name="name"/>
+        </createIndex>
+
+        <createIndex indexName="ix_model_artifacts_role" tableName="model_artifacts">
+            <column name="role"/>
+        </createIndex>
+
+        <rollback>
+            <dropTable tableName="model_artifacts"/>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

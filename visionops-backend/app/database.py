@@ -38,10 +38,13 @@ def _alembic_config() -> Config:
 
 
 def run_migrations() -> None:
-    """Apply pending Alembic migrations to head."""
-    command.upgrade(_alembic_config(), "head")
+    """Schema lifecycle is managed by Liquibase.
+
+    Alembic auto-upgrade is disabled to ensure full schema authority belongs to Liquibase.
+    """
+    pass
 
 
 def init_db() -> None:
-    """Compatibility wrapper — schema is managed by Alembic."""
-    run_migrations()
+    """Compatibility wrapper — schema is managed by Liquibase."""
+    pass
