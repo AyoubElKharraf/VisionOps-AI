@@ -172,7 +172,7 @@ services:
     networks: [visionops]
 
   minio:
-    image: minio/minio:latest
+    image: ghcr.io/coollabsio/minio:latest
     container_name: visionops-minio
     restart: unless-stopped
     command: server /data --console-address ":9001"

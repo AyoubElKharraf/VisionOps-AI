@@ -27,9 +27,12 @@ os.environ.setdefault("VISIONOPS_API_KEY", "")
 
 @pytest.fixture(scope="session")
 def app():
+    from app import models  # noqa: F401
     from app.config import get_settings
+    from app.database import Base, engine
 
     get_settings.cache_clear()
+    Base.metadata.create_all(bind=engine)
     from app.main import app as fastapi_app
 
     return fastapi_app
