@@ -93,6 +93,27 @@ jobs:
       - name: Ruff lint
         run: ruff check app tests
 
+      - name: Validate & apply Liquibase migrations
+        run: |
+          docker run --rm --network host \
+            -v ${{ github.workspace }}/visionops-backend/db/changelog:/liquibase/changelog \
+            liquibase/liquibase:4.29 \
+            --search-path=/liquibase/changelog \
+            --url="jdbc:postgresql://127.0.0.1:5432/visionops_db" \
+            --username=visionops \
+            --password=visionops_secret \
+            --changelog-file=db.changelog-master.xml \
+            validate
+          docker run --rm --network host \
+            -v ${{ github.workspace }}/visionops-backend/db/changelog:/liquibase/changelog \
+            liquibase/liquibase:4.29 \
+            --search-path=/liquibase/changelog \
+            --url="jdbc:postgresql://127.0.0.1:5432/visionops_db" \
+            --username=visionops \
+            --password=visionops_secret \
+            --changelog-file=db.changelog-master.xml \
+            update
+
       - name: Pytest API
         run: pytest -q tests
 

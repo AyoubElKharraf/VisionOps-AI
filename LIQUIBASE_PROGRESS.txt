@@ -35,7 +35,7 @@ Pourquoi Liquibase ?
 [X] Phase 2.1 : Insertion des données initiales (Seeds v1.1 : admin, caméras, ROI).
 [X] Phase 2.2 : Scripts CLI d'administration rapides (PowerShell et Bash).
 [X] Phase 2.3 : Désactivation d'Alembic au profit exclusif de Liquibase.
-[ ] Phase 3.0 : Automatisation CI/CD (GitHub Actions / GitLab CI).
+[X] Phase 3.0 : Automatisation CI/CD (GitHub Actions / GitLab CI).
 
 --------------------------------------------------------------------------------
 3. JOURNAL DES MODIFICATIONS (CE QUI A CHANGÉ, COMMENT & POURQUOI)
@@ -274,10 +274,36 @@ Pourquoi Liquibase ?
     de la base de données au démarrage de l'API.
 
 --------------------------------------------------------------------------------
+>> ÉTAPE 8 : Phase 3.1 — Intégration CI/CD GitHub Actions & Fix Linter
+--------------------------------------------------------------------------------
+* QUOI :
+  - Modification de : .github/workflows/ci.yml
+  - Modification de : visionops-backend/app/database.py
+  - Modification de : visionops-backend/app/main.py
+  - Modification de : .gitignore
+* COMMENT :
+  - Dans `.github/workflows/ci.yml` (job `backend-lint-test`) :
+    * Ajout de l'exécution automatique du conteneur officiel `liquibase/liquibase:4.29`
+      connecté au service PostgreSQL (`jdbc:postgresql://127.0.0.1:5432/visionops_db`).
+    * Étape 1 : `liquibase validate` (validation statique et syntaxique des changesets).
+    * Étape 2 : `liquibase update` (application du schéma v1.0 et des seeds v1.1).
+    * Garantit que la base de données est complètement initialisée avant que
+      `pytest -q tests` ne s'exécute.
+  - Correction Linter Ruff (0 erreur) :
+    * Suppression de l'import orphelin `from alembic import command` dans `database.py`.
+    * Conservation et appel du hook `run_migrations()` dans `main.py` pour préserver
+      la compatibilité des fixtures de tests existantes (`test_metrics.py`, `test_jwt_auth.py`, etc.).
+  - Ajout de `*.tsbuildinfo` dans `.gitignore`.
+* POURQUOI :
+  - Détecter immédiatement en CI toute anomalie de changeset ou de schéma SQL.
+  - Assurer un statut vert (100% succès) sur l'ensemble de la suite GitHub Actions.
+
+--------------------------------------------------------------------------------
 4. ARBORESCENCE ACTUELLE LIQUIBASE
 --------------------------------------------------------------------------------
 VisionOps-AI/
 ├── LIQUIBASE_PROGRESS.txt       (Journal de bord et suivi d'avancement)
+├── .github/workflows/ci.yml     (Pipeline CI/CD intégrant Liquibase validate & update)
 ├── docker-compose.yml           (Orchestration incluant le service liquibase)
 ├── scripts/
 │   ├── db-status.ps1 / .sh      (Vérification du statut des migrations)
@@ -294,9 +320,8 @@ VisionOps-AI/
 --------------------------------------------------------------------------------
 5. PROCHAINES ÉTAPES (PHASE 3)
 --------------------------------------------------------------------------------
-1. Phase 3.1 : Pipeline CI/CD (GitHub Actions)
-   - Validation automatisée des changesets (`liquibase validate` / `--dry-run`).
-2. Phase 3.2 : Tagging sémantique
+1. Phase 3.2 : Tagging sémantique
    - Pose de tags Liquibase après chaque livraison majeure (ex: `tag v1.1`).
 ================================================================================
+
 

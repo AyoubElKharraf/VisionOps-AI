@@ -71,7 +71,8 @@ def on_startup() -> None:
         ",".join(_cors_origins),
     )
 
-    # Schema migrations are executed before backend startup by the Liquibase service
+    # Schema migrations are executed by Liquibase; run_migrations is kept as a compatibility hook
+    run_migrations()
     logger.info("Database schema is managed by Liquibase")
     try:
         db = SessionLocal()
